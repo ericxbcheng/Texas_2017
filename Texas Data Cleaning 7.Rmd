@@ -1,0 +1,49 @@
+---
+title: "Texas Data Cleaning 7"
+author: "Xianbin Cheng"
+date: "3/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Objective
+
+  * Summarize the kernel weight data of Texas corn 2017 collected by Ruben.
+  
+# Method
+
+1. Load libraries and clean up the dataset.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+```
+
+```{r}
+weight = read.csv(file = "Corn Texas 2017 plate 2 Overall results with weight.csv", header = TRUE, stringsAsFactors = FALSE)
+str(weight)
+```
+
+```{r}
+# After cleaning all the NAs
+weight2 = weight %>%
+  dplyr::select(-c(X, X.1)) %>%
+  mutate(Plate = str_sub(string = .$Kernel_ID, start = 1, end = 3) %>% as.numeric(),
+         Kernel = str_split(string = .$Kernel_ID, pattern = "-", simplify = TRUE)[,2] %>% as.numeric()) %>%
+  na.omit()
+
+str(weight2)
+```
+
+# Result
+
+1. How many new weight data were collected by Ruben?
+
+```{r}
+weight2 %>%
+  group_by(Plate) %>%
+  summarise(nobs = n())
+```
+

@@ -1,0 +1,123 @@
+---
+title: "Texas Data Cleaning 6"
+author: "Xianbin Cheng"
+date: "March 5, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Create a labeled dataset for Texas corn kernels collected in 2017
+  
+# Method
+
+1. Load the libraries and files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r}
+sessionInfo()
+```
+
+```{r}
+# Spec names and Kernel IDs
+spec_kernel = read.csv("TX Spec_Kernel_ID_960obs.csv", header = TRUE, stringsAsFactors = FALSE, na.strings = "")
+
+# ELISA
+Conc = read.csv("Texas_2017_combined_864obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+# Spectra
+X1 = read.csv("TX X1.csv", header = TRUE, stringsAsFactors = FALSE)
+X2 = read.csv("TX X2.csv", header = TRUE, stringsAsFactors = FALSE)
+X1_norm = read.csv("TX X1_norm.csv", header = TRUE, stringsAsFactors = FALSE)
+X2_norm = read.csv("TX X2_norm.csv", header = TRUE, stringsAsFactors = FALSE)
+X1_perc = read.csv("TX X1_perc.csv", header = TRUE, stringsAsFactors = FALSE)
+X2_perc = read.csv("TX X2_perc.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+2. Combine `X1` with `X2` and combine `X1_norm` with `X2_norm`.
+
+```{r}
+X_combined = rbind(X1, X2)
+X_norm_combined = rbind(X1_norm, X2_norm)
+X_perc_combined = rbind(X1_perc, X2_perc)
+```
+
+3. Extract out the mycotoxin class labels. Join the `labels` with `spec_kernel` on `Kernel_ID`. Gather `Spec_ID1` and `Spec_ID2` into one `Name` colume. Remember, there are 48 NA's in `Spec_ID2` and we need to remove those.
+
+```{r}
+labels = Conc %>%
+  dplyr::select(Kernel_ID, AF_class, FM_class)
+
+temp = inner_join(x = labels, y = spec_kernel, by = "Kernel_ID") %>%
+  gather(data = ., key = "Spec_type", value = "Spec_ID_all", Spec_ID1, Spec_ID2) %>%
+  na.omit()
+
+kernel_conc_spec = temp %>%
+  dplyr::select(Kernel_ID, AF_class, FM_class, Spec_ID_all)
+```
+
+4. Join the `kernel_conc_spec` with `X_combined` and `X_norm_combined`. 
+
+```{r}
+X_Conc_1680_obs = inner_join(x = kernel_conc_spec, y = X_combined, by = c("Spec_ID_all" = "X"))
+X_norm_Conc_1680_obs = inner_join(x = kernel_conc_spec, y = X_norm_combined, by = c("Spec_ID_all" = "X"))
+X_perc_Conc_1680_obs = inner_join(x = kernel_conc_spec, y = X_perc_combined, by = c("Spec_ID_all" = "X"))
+```
+
+# Result
+
+1. Summary of spectra before cleaning.
+
+```{r}
+str(spec_kernel)
+str(Conc)
+
+dim(X1)
+dim(X2)
+dim(X1_norm)
+dim(X2_norm)
+dim(X1_perc)
+dim(X2_perc)
+```
+
+```{r}
+# Spec_ID1: How many of them are not NA's?
+spec_kernel %>%
+  group_by(Bulk_Class) %>%
+  dplyr::select( - Spec_ID2) %>%
+  na.omit() %>%
+  summarise(obs = n())
+
+# Spec_ID2: How many of them are not NA's?
+spec_kernel %>%
+  group_by(Bulk_Class) %>%
+  dplyr::select( - Spec_ID1) %>%
+  na.omit() %>%
+  summarise(obs = n())
+```
+
+2. Summary after cleaning.
+
+```{r}
+# How many spectra are there per bulk class?
+temp %>%
+  group_by(Bulk_Class) %>%
+  summarise(obs = n())
+```
+
+```{r}
+str(X_Conc_1680_obs, list.len = 10)
+str(X_norm_Conc_1680_obs, list.len = 10)
+str(X_perc_Conc_1680_obs, list.len = 10)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+write.csv(x = X_Conc_1680_obs, file = "TX X_Conc_1680_obs.csv")
+write.csv(x = X_norm_Conc_1680_obs, file = "TX X_norm_Conc_1680_obs.csv")
+write.csv(x = X_perc_Conc_1680_obs, file = "TX X_perc_Conc_1680_obs.csv")
+```
+

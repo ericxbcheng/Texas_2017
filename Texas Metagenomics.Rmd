@@ -1,0 +1,108 @@
+---
+title: 'Texas: Metagenomics'
+author: "Xianbin Cheng"
+date: "July 25, 2018"
+output: html_document
+---
+
+# Method #
+
+1. Load the libraries and read in the txt files.
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tibble)
+```
+
+```{r}
+bac_unw = read.table("16S_unweighted_unifrac_dm.txt", header = TRUE)
+bac_w = read.table("16S_weighted_unifrac_dm.txt", header = TRUE)
+fung_unw = read.table("ITS_unweighted_unifrac_dm.txt", header = TRUE)
+fung_w = read.table("ITS_weighted_unifrac_dm.txt", header = TRUE)
+
+conc = read.csv("JGI_Kernel_Conc.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+str(bac_unw)
+
+str(fung_unw)
+
+str(conc)
+```
+
+2. Create a function that performs multidimensional scaling (Principal Coordinate Analysis) on the distance matrices.
+
+```{r}
+get_mds_plot = function(dist_mat, conc_df, type, plot_title = "PCoA Plot", show_label = TRUE, legend_name){
+  
+  ## Calculate multidimensional scaling
+  a = cmdscale(d = dist_mat, k = 2, eig = TRUE)
+  b = rownames_to_column(as.data.frame(a$points))
+  b$rowname = gsub(pattern = "_", replacement = "-", x = b$rowname)
+  c = right_join(x = conc_df, y = b, by = c("Kernel_ID" = "rowname"))
+  
+  ## Visualization
+  if(show_label == TRUE){
+    ggplot(data = c, aes(x = V1, y = V2)) +
+      geom_point(aes_string(color = type)) +
+      geom_text(aes(label = Kernel_ID), position = position_jitter()) +
+      scale_color_gradient2(name = legend_name, low = "dodgerblue", high = "red") +
+      labs(x = "Coordinate 1", y = "Coordinate 2", title = plot_title) +
+      theme_bw()
+  } else {
+    ggplot(data = c, aes(x = V1, y = V2)) +
+      geom_point(aes_string(color = type)) +
+      scale_color_gradient2(name = legend_name, low = "dodgerblue", high = "red") +
+      labs(x = "Coordinate 1", y = "Coordinate 2", title = plot_title) +
+      theme_bw()
+  }
+}
+
+```
+
+# Results #
+
+1. Show the PCoA plots with a scale of aflatoxin concentration.
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "AF.ppb.", plot_title = "16S Unweighted Unifrac DM",show_label = FALSE, legend_name = "Aflatoxin (ppb)")
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "AF.ppb.", plot_title = "16S Unweighted Unifrac DM",show_label = TRUE, legend_name = "Aflatoxin (ppb)")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "AF.ppb.", plot_title = "16S Weighted Unifrac DM",show_label = FALSE, legend_name = "Aflatoxin (ppb)")
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "AF.ppb.", plot_title = "16S Weighted Unifrac DM",show_label = TRUE, legend_name = "Aflatoxin (ppb)")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "AF.ppb.", plot_title = "ITS Unweighted Unifrac DM",show_label = FALSE, legend_name = "Aflatoxin (ppb)")
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "AF.ppb.", plot_title = "ITS Unweighted Unifrac DM",show_label = TRUE, legend_name = "Aflatoxin (ppb)")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "AF.ppb.", plot_title = "ITS Weighted Unifrac DM",show_label = FALSE, legend_name = "Aflatoxin (ppb)")
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "AF.ppb.", plot_title = "ITS Weighted Unifrac DM",show_label = TRUE, legend_name = "Aflatoxin (ppb)")
+```
+
+2. Show the PCoA plots with a scale of fumonisin concentration. 
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "FM.ppm.", plot_title = "16S Unweighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin (ppm)")
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "FM.ppm.", plot_title = "16S Unweighted Unifrac DM",show_label = TRUE, legend_name = "Fumonisin (ppm)")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "FM.ppm.", plot_title = "16S Weighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin (ppm)")
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "FM.ppm.", plot_title = "16S Weighted Unifrac DM",show_label = TRUE, legend_name = "Fumonisin (ppm)")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "FM.ppm.", plot_title = "ITS Unweighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin (ppm)")
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "FM.ppm.", plot_title = "ITS Unweighted Unifrac DM",show_label = TRUE, legend_name = "Fumonisin (ppm)")
+```
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "FM.ppm.", plot_title = "ITS Weighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin (ppm)")
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "FM.ppm.", plot_title = "ITS Weighted Unifrac DM",show_label = TRUE, legend_name = "Fumonisin (ppm)")
+```
+

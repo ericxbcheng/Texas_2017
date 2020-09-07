@@ -1,0 +1,301 @@
+---
+title: "Texas Machine Learning 3: Classification for Aflatoxin"
+author: "Xianbin Cheng"
+date: "12/19/2019"
+output: html_document
+---
+
+# Objective
+
+  Train models that can classify kernels by aflatoxin levels with high sensitivity and specificity.
+  
+# Method
+
+1. Read files and load libraries.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(gbm)
+library(glmnet)
+library(kernlab)
+library(MASS)
+library(stepPlr)
+library(nnet)
+library(adabag)
+library(kableExtra)
+```
+
+```{r, message = FALSE, warning = FALSE}
+norm_data = read_csv(file = "tx x_norm_conc_1680_obs.csv")
+AF_class = norm_data$AF_class
+spec_data = norm_data %>%
+  dplyr::select(-c(X1, Kernel_ID, AF_class, FM_class, Spec_ID_all)) %>%
+  as.matrix()
+
+str(norm_data, list.len = 8, give.attr = FALSE)
+summary(as.factor(AF_class))
+```
+
+2. Train models
+
+  * Train-test split ratio = 7:3
+  * Up-sampling of the minority class in the training set
+  * 5-fold cross-validation
+  * Using "sensitivity" as a metric for parameter tuning
+  * Algorithms:
+    - Logistic regression with LASSO: using "AUC" as cross-validation method for choosing $\lambda$
+    - Stochastic gradient boosting
+    - SVM (polynomial, radial basis kernel)
+    - LDA
+    - Random forest
+    - Penalized logistic regression with l2 norm
+    - Bagged Adaboost
+
+```{r}
+set.seed(123)
+trn_idx = createDataPartition(y = AF_class, p = 0.7, list = FALSE)
+trn_data = spec_data[trn_idx, ]
+tst_data = spec_data[-trn_idx, ]
+trn_AF = AF_class[trn_idx] %>% as.factor()
+tst_AF = AF_class[-trn_idx] %>% as.factor()
+summary(trn_AF)
+summary(tst_AF)
+
+# Up sampling of the minority class
+resamp = upSample(x = trn_data, y = trn_AF)
+trn_data_samp = dplyr::select(.data = resamp, -Class) %>% as.matrix()
+trn_AF_samp = resamp$Class
+summary(trn_AF_samp)
+```
+
+```{r, eval = FALSE}
+# TrainControl
+cv_5 = trainControl(method = "cv", number = 5, classProbs = TRUE, summaryFunction = twoClassSummary, verboseIter = FALSE)
+```
+
+```{r, eval = FALSE}
+# Logisitic regression with LASSO
+set.seed(123)
+cv.mod = cv.glmnet(x = trn_data_samp, y = trn_AF_samp, type.measure = "auc", family = "binomial", alpha = 1)
+mod_glmnet = glmnet(x = trn_data_samp, y = trn_AF_samp, family = "binomial", alpha = 1, lambda = cv.mod$lambda.min)
+saveRDS(object = mod_glmnet, file = "mod_glmnet.rds")
+
+# gradient stochastic boosting
+set.seed(123)
+mod_gbm = train(x = trn_data_samp, 
+                y = trn_AF_samp, 
+                method = "gbm", 
+                preProcess = NULL, 
+                metric = "Sens", 
+                trControl = cv_5, 
+                tuneGrid = expand.grid(shrinkage = c(0.01, 0.1), n.minobsinnode = 10, n.trees = c(100, 150, 200), interaction.depth = c(1, 2)))
+saveRDS(object = mod_gbm, file = "mod_gbm.rds")
+
+# SVM
+set.seed(123)
+mod_svm_poly = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "svmPoly", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+saveRDS(object = mod_svm_poly, file = "mod_svm_poly.rds")
+
+set.seed(123)
+mod_svm_rad = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "svmRadial", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+saveRDS(object = mod_svm_rad, file = "mod_svm_rad.rds")
+
+# Random forest
+set.seed(123)
+mod_rf = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "rf", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+
+# LDA
+set.seed(123)
+mod_lda = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "lda", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+saveRDS(object = mod_lda, file = "mod_lda_af.rds")
+
+# penalized logistic regression (l2 norm)
+set.seed(123)
+mod_logi = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "plr", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+saveRDS(object = mod_logi, file = "mod_logi.rds")
+
+# Adabag
+set.seed(123)
+mod_ada = train(x = trn_data_samp, 
+                    y = trn_AF_samp, 
+                    method = "AdaBag", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5)
+saveRDS(object = mod_ada, file = "mod_ada.rds")
+
+##### nnet failed
+# set.seed(123)
+# mod_nnet = nnet(x = trn_data_samp, y = trn_AF_samp, size = 3, linout = TRUE, MaxNWts = 5000)
+
+# QDA (collinear variables --> failed)
+```
+
+```{r, echo = FALSE}
+rds_files = dir(pattern = ".rds")
+mods = map(.x = rds_files, .f = readRDS)
+names(mods) = str_remove(string = rds_files, pattern = ".rds")
+```
+
+```{r, echo = FALSE}
+get_metrics = function(mod, true){
+  
+  a = confusionMatrix(data = as.factor(mod), reference = as.factor(true), positive = "H")
+  accu = a$overall["Accuracy"]
+  sens = a$byClass["Sensitivity"]
+  spec = a$byClass["Specificity"]
+  return(list(accu, sens, spec))
+}
+
+# Plot non-zero beta_hats
+get_nonzero = function(model){
+  
+  a = model$beta %>%
+    as.matrix() %>%
+    as.data.frame() %>%
+    subset(x = ., subset = `s0` != 0)
+  
+  wavelength = rownames(a) %>% 
+    str_remove(string = ., pattern = "X") %>%
+    as.numeric()
+  
+  a$wavelength = wavelength
+  colnames(a)[1] = "beta"
+  return(a)
+}
+```
+
+```{r, echo = FALSE}
+# LASSO with logistic regression
+result_glmnet_trn = predict(object = mods$mod_glmnet_af, newx = trn_data, s = mods$mod_glmnet_af$lambda, type = "class")
+result_glmnet = predict(object = mods$mod_glmnet_af, newx = tst_data, s = mods$mod_glmnet_af$lambda, type = "class")
+
+# GBM
+result_gbm_trn = predict(object = mods$mod_gbm_af, newdata = trn_data, type = "raw")
+result_gbm = predict(object = mods$mod_gbm_af, newdata = tst_data, type = "raw")
+
+# SVM polynomial kernel
+result_svm_poly_trn = predict(object = mods$mod_svm_poly_af$finalModel, newdata = trn_data)
+result_svm_poly = predict(object = mods$mod_svm_poly_af$finalModel, newdata = tst_data)
+
+# SVM radial basis kernel
+result_svm_rad_trn = predict(object = mods$mod_svm_rad_af$finalModel, newdata = trn_data)
+result_svm_rad = predict(object = mods$mod_svm_rad_af$finalModel, newdata = tst_data)
+
+# Random forest
+result_rf_trn = predict(object = mods$mod_rf_af$finalModel, newdata = trn_data)
+result_rf = predict(object = mods$mod_rf_af$finalModel, newdata = tst_data)
+
+# LDA
+result_lda_trn = predict(object = mods$mod_lda_af$finalModel, newdata = trn_data)$class
+result_lda = predict(object = mods$mod_lda_af$finalModel, newdata = tst_data)$class
+
+# Logistic regression
+result_logi_trn = predict(object = mods$mod_logi_af, newdata = trn_data)
+result_logi = predict(object = mods$mod_logi_af, newdata = tst_data)
+
+# Ada
+result_ada_trn = predict(object = mods$mod_ada_af, newdata = trn_data)
+result_ada = predict(object = mods$mod_ada_af, newdata = tst_data)
+```
+
+# Result
+
+  Training and testing sensitivity and specificity values of each model with tuned parameters are shown here.
+
+```{r, echo = FALSE}
+list_trn = list(result_ada_trn, result_gbm_trn, result_glmnet_trn, result_lda_trn, result_logi_trn, result_rf_trn, result_svm_poly_trn, result_svm_rad_trn)
+list_tst = list(result_ada, result_gbm, result_glmnet, result_lda, result_logi, result_rf, result_svm_poly, result_svm_rad)
+
+metrics_trn = sapply(X = list_trn, FUN = get_metrics, true = trn_AF)
+metrics_tst = sapply(X = list_tst, FUN = get_metrics, true = tst_AF)
+
+get_bestTune = function(model){
+  a = model$bestTune
+  param = colnames(a)
+  return(str_c(param, a, sep = " = ", collapse = ", "))
+}
+
+result_table = rbind.data.frame(t(metrics_trn), t(metrics_tst)) %>%
+  rename(.data = ., "Accuracy" = "V1", "Sensitivity" = "V2", "Specificity" = "V3") %>%
+  mutate(Model = rep(x = c("Ada", "gbm", "LASSO", "LDA", "Logistic", "rf", "SVM_poly", "SVM_radial"), times = 2),
+         Dataset = rep(x = c("training", "testing"), each = 8), 
+         Parameters = rep(x = sapply(X = mods, FUN = get_bestTune), times = 2)) %>%
+  dplyr::select(.data = ., c("Model", "Parameters","Dataset", "Accuracy", "Sensitivity", "Specificity")) %>%
+  arrange(Model, desc(Dataset))
+
+result_table$Accuracy = unlist(result_table$Accuracy)
+result_table$Sensitivity = unlist(result_table$Sensitivity)
+result_table$Specificity = unlist(result_table$Specificity)
+
+kable_styling(kable_input = kable(result_table, format = "html", digits = 4), full_width = TRUE)
+```
+
+```{r, echo = FALSE}
+temp = result_table %>%
+  gather(data = ., key = "Metric", value = "Value", -c(Model, Dataset, Parameters))
+temp$Value = unlist(temp$Value)
+
+ggplot(data = temp, aes(x = as.factor(Model), y = Value, color = as.factor(Metric))) +
+  geom_point() +
+  scale_color_discrete(name = "Metric") +
+  labs(x = "Model", "Metric Value") +
+  facet_grid(as.factor(Dataset) ~ .) +
+  theme_bw()
+```
+
+# Conclusion
+
+* The **stochastic gradient boosting** model is optimal with a sensitivity of 0.75 and a specificity of 0.8256.
+* The bagged AdaBoost and stochastic gradient boosting models generally performed better as their testing accuracies are higher than the rest.
+* LASSO, LDA, logistic regression, SVM with radial basis kernel may perform well with more positives in the testing data.
+* Most models are overfitting the training data. For tree models, it may be better to limit the number of trees. For generative models like LDA, it may be better to reduce the dimension by penalization.
+  
+# Appendix
+
+1. The details of parameter tuning of each model are presented here.
+
+```{r, echo = FALSE}
+mods$mod_ada_af
+mods$mod_gbm_af
+mods$mod_glmnet_af
+mods$mod_lda_af
+mods$mod_logi_af
+mods$mod_rf_af
+mods$mod_svm_poly_af
+mods$mod_svm_rad_af
+```
+
+2. Reproducibility
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+

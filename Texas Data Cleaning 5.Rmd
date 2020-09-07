@@ -1,0 +1,103 @@
+---
+title: 'Texas: Data Cleaning 5'
+author: "Xianbin Cheng"
+date: "February 28, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Summarize Ruben's data.
+  * Combine my data with Ruben's data to form Texas corn 2017 dataset.
+
+# Method
+
+1. Load libraries and files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+```
+
+```{r}
+my = read.csv("Texas_Conc_Class_528obs_02_05_19.csv", header = TRUE, stringsAsFactors = FALSE, row.names = 1)
+my$AF_class = factor(my$AF_class, levels = c("H", "M", "L"))
+my$FM_class = factor(my$FM_class, levels = c("H", "M", "L"))
+my$plate = as.numeric(my$plate)
+my$kernel = as.numeric(my$kernel)
+
+ruben = read.csv("Corn Texas 2017 plate 2 Overall results.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+str(my)
+str(ruben)
+```
+
+2. Organize Ruben's data.
+
+```{r}
+AF_class = ifelse(test = ruben$AF.ppb. < 20, yes = "L", no = ifelse(test = ruben$AF.ppb. >= 50, yes = "H", no = "M")) %>% factor(x = ., levels = c("H", "M", "L"))
+FM_class = ifelse(test = ruben$FM.ppm. < 1, yes = "L", no = ifelse(test = ruben$FM.ppm. >= 4, yes = "H", no = "M")) %>% factor(x = ., levels = c("H", "M", "L"))
+
+ruben_clean = ruben %>%
+  mutate(AF_class = AF_class,
+         FM_class = FM_class,
+         plate = str_split(string = ruben$Kernel_ID, pattern = "-", simplify = TRUE)[,1] %>% as.numeric(),
+         kernel = str_split(string = ruben$Kernel_ID, pattern = "-", simplify = TRUE)[,2] %>% as.numeric()) %>%
+  dplyr::select(Kernel_ID, AF.ppb., FM.ppm., plate, kernel, X.LOD.AF, X.LOD.FM, AF_class, FM_class) %>%
+  arrange(.data = ., plate, kernel) %>%
+  group_by(plate)
+
+str(ruben_clean)
+```
+
+# Result
+
+1. Summary of Ruben's data
+
+```{r}
+summary(AF_class)
+summary(FM_class)
+```
+
+```{r}
+# Check for NAs
+anyNA(ruben_clean)
+
+# Count number of observations for each plate type
+ruben_clean %>%
+  summarize(obs = n())
+```
+
+```{r, eval = FALSE}
+write.csv(x = ruben_clean, file = "Texas_2017_Ruben_336obs.csv")
+```
+
+2. Summary of my data.
+
+```{r}
+summary(my$AF_class)
+summary(my$FM_class)
+```
+
+3. Summary of combined data: Texas corn 2017
+
+```{r}
+combined = rbind.data.frame(my, ruben_clean)
+str(combined)
+```
+
+```{r}
+summary(combined$AF_class)
+summary(combined$FM_class)
+```
+
+```{r, eval = FALSE}
+write.csv(x = combined, file = "Texas_2017_combined_864obs.csv")
+```
+
+# Conclusion
+
+  * Data cleaning for Texas corn 2017 is complete.
+  * We have `r nrow(combined)` kernels.
+  

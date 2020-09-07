@@ -1,0 +1,119 @@
+---
+title: "Texas Corn ELISA Visualization"
+author: "Xianbin Cheng"
+date: "April 12, 2018"
+output: html_document
+---
+
+## Method ##
+
+### Data Cleaning ###
+
+1. Load the libraries and read in the file.
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+
+df = read.csv("Texas Corn Total ELISA.csv", header = TRUE)
+```
+
+2. Only keep the following Kernel_IDs: 101, 102, 201, 301, 401, 501, 601, 701, 801, 901, 902
+```{r}
+Plate = substr(df$Kernel_ID, start = 1, stop = 3)
+keep_ind = Plate %in% c(101, 102, 201, 301, 401, 501, 601, 701, 801, 901, 902)
+sum(keep_ind)
+
+df_keep = df[keep_ind, ]
+```
+
+3. Create a class vector for aflatoxin. L means [AF] < 20 ppb, M means 20 ppb <= [AF] < 50 ppb, H means [AF] >= 50 ppb
+```{r}
+## Aflatoxin class
+AF_class = ifelse(df_keep$AF.ppb. < 20, "L", "M")
+AF_class[df_keep$AF.ppb. >= 50] = "H"
+AF_class[is.na(df_keep$AF.ppb.)] = "L"
+AF_class = factor(AF_class, levels = c("H", "M", "L"))
+summary(AF_class)
+```
+
+4. Create a class vector for fumonisin. L means [FM] < 1 ppm, M means 1 ppm <= [FM] < 4 ppm, H means [FM] >= 4 ppm.
+```{r}
+## Fumonisin class
+FM_class = ifelse(df_keep$FM.ppm. < 1, "L", "M")
+FM_class[df_keep$FM.ppm. >= 4] = "H"
+FM_class[is.na(df_keep$FM.ppm.)] = "L"
+FM_class = factor(FM_class, levels = c("H", "M", "L"))
+summary(FM_class)
+```
+
+5. Combine the data with the class vectors.
+```{r}
+Conc_lab = cbind(df_keep, AF_class, FM_class)
+```
+
+6. Output the file as Texas ELISA Conc and Label 04_12_2018.csv.
+```{r, eval = FALSE}
+write.csv(Conc_lab, "Texas ELISA Conc and Label 04_12_2018.csv")
+```
+
+
+### Visualization ###
+
+1. Create a histogram for aflatoxin distribution grouped by class. Put the x axis on the log scale.
+```{r}
+AF_hist = ggplot(data = Conc_lab)+
+  geom_histogram(aes(x = Conc_lab$AF.ppb., fill = Conc_lab$AF_class), bins = 50) +
+  labs(x = "Aflatoxin Concentration (ppb)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4, 1e5)) +
+  scale_fill_discrete(name = "Single Kernel Aflatoxin Level", labels = c("[AF]>=50", "[AF]<20")) +
+  theme_classic() +
+  theme(legend.position = "top")
+
+AF_hist
+```
+
+2. Create a histogram for fumonisin distribution grouped by class. Put the x axis on the log scale.
+```{r}
+FM_hist = ggplot(data = Conc_lab)+
+  geom_histogram(aes(x = Conc_lab$FM.ppm., fill = Conc_lab$FM_class), bins = 50) +
+  labs(x = "Fumonisin Concentration (ppm)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)) +
+  scale_fill_discrete(name = "Single Kernel Fumonisin Level", labels = c("[FM]>=4", "1<=[FM]<4", "[FM]<1")) +
+  theme_classic()+
+  theme(legend.position = "top")
+
+FM_hist
+```
+
+3. Create a bar chart for both aflatoxin and fumonisin grouped by class.
+```{r, warning = FALSE}
+barchart = ggplot(data = Conc_lab)+
+  geom_bar(aes(x = rep("Aflatoxin", nrow(Conc_lab)), fill = AF_class), 
+           position = "stack") +
+  geom_bar(aes(x = rep("Fumonisin", nrow(Conc_lab)), fill = FM_class), 
+           position = "stack") +
+  geom_text(stat="count", aes(x = rep("Aflatoxin", nrow(Conc_lab)), 
+                              fill = AF_class, 
+                              label=..count..), 
+            position = position_stack(vjust = 0.5)) +
+  geom_text(stat="count", aes(x = rep("Fumonisin", nrow(Conc_lab)), 
+                              fill = FM_class, 
+                              label=..count..), 
+            position = position_stack(vjust = 0.5)) +
+  labs(x = NULL, y = "Number of Kernels") +
+  scale_fill_discrete(name = "Single Kernel Mycotoxin Level", labels = c("High", "Low", "Medium")) +
+  theme_classic()+
+  theme(legend.position = "top")
+
+barchart
+```
+
+
+4. Output the plots in a pdf file.
+```{r, eval = FALSE}
+pdf("Texas Corn Kernels ELISA Results.pdf")
+  AF_hist
+  FM_hist
+  barchart
+dev.off()
+```
+

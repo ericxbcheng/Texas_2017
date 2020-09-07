@@ -1,0 +1,154 @@
+---
+title: "Texas Skewed Distribution 3"
+author: "Xianbin Cheng"
+date: "3/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Objective
+
+  We want to create the weighted mycotoxin distribution figures with all of Texas 2017 corn data.
+  
+# Methods
+
+1. Load the data and give a summary.
+
+```{r, warning = FALSE, message = FALSE, echo = TRUE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r, echo = TRUE}
+# Mycotoxin concentrations
+texas_conc = read.csv(file = "Texas_2017_combined_864obs.csv", header = TRUE, stringsAsFactors = FALSE, row.names = 1)
+texas_conc$FM_class = ifelse(test = texas_conc$FM.ppm. >= 2, yes = "H", no = "L")
+str(texas_conc)
+
+# How many observations per class?
+summary(as.factor(texas_conc$AF_class))
+summary(as.factor(texas_conc$FM_class))
+
+# Bulk mycotoxin levels
+bulk_level = read.csv(file = "Bulk Level.csv", header = TRUE, stringsAsFactors = FALSE)
+str(bulk_level)
+
+# Weight and visible features
+features = read.csv(file = "Texas_2017_weight_vis_features.csv", header = TRUE, stringsAsFactors = FALSE)
+str(features)
+```
+
+2. Join the 3 datasets. First, `texas_conc` inner join `features` by `Kernel_ID` to get an intermediate data frame. Second, `bulk_level` right join that data frame. The final dataset should have 864 observations.
+
+```{r, echo = TRUE}
+full_data = inner_join(x = texas_conc, y = features, by = "Kernel_ID") %>%
+  right_join(x = bulk_level, y = ., by = "Class")
+colnames(full_data)[1] = "Bulk_class"
+str(full_data)
+
+# How many observations per bulk class?
+summary(as.factor(full_data$Bulk_class))
+```
+
+3. Calculate how much mycotoxin each kernel contributes to the bulk level.
+  
+  **Two concepts:**
+  
+  * Prior bulk level = what Texas State Chemist provided
+  * Posterior bulk level = weighted sum of mycotoxin concentrations = 
+  
+$$\frac {\sum_{i=1}^{n}C_im_i}{\sum_{i=1}^nm_i}$$ 
+, where $C_i$ = mycotoxin concentration of kernel i, $m_i$ = mass of kernel i.
+
+  Let's use the posterior bulk level for further analysis.
+  
+```{r, echo = TRUE}
+a = full_data %>%
+  group_by(Bulk_class) %>%
+  mutate(wt_frac = m.kernel..g / sum(m.kernel..g), 
+         wt_AF = AF.ppb. * wt_frac,
+         wt_FM = FM.ppm. * wt_frac) 
+```
+
+4. Compare the prior bulk class level with the posterior bulk class level.
+
+```{r, echo = TRUE}
+b = a %>%
+  group_by(Bulk_class) %>%
+  summarise(Bulk_AF_prior = mean(Bulk_Aflatoxin.ppb.), Bulk_FM_prior = mean(Bulk_Fumonisin.ppm.),
+            Bulk_AF_post = sum(wt_AF), Bulk_FM_post = sum(wt_FM))
+```
+
+# Result
+
+```{r}
+vis_wt_mycotoxin = function(data, type){
+
+  if(type == "AF"){
+    wt = "wt_AF"
+    fill_class = "AF_class"
+    fill_legend = "Single kernel aflatoxin level"
+    ylab = "Weighted aflatoxin concentration (ppb)"
+    
+    temp = data %>%
+      group_by(Bulk_class) %>%
+      arrange(.data = ., desc(wt_AF)) %>%
+      mutate(kernel_index = 1:n())
+    
+  } else if (type == "FM"){
+    wt = "wt_FM"
+    fill_class = "FM_class"
+    fill_legend = "Single kernel fumonisin level"
+    ylab = "Weighted fumonisin concentration (ppm)"
+    
+    temp = data %>%
+      group_by(Bulk_class) %>%
+      arrange(.data = ., desc(wt_FM)) %>%
+      mutate(kernel_index = 1:n())
+    
+  } else {
+    stop("Unknown mycotoxin type.")
+  }
+  
+  ggplot(data = temp) +
+    geom_col(aes_string(x = "kernel_index", y = wt, fill = fill_class)) +
+    # scale_y_sqrt() +
+    facet_wrap(~Bulk_class, scales = "free_y", ) +
+    labs(x = "Kernel Index", y = ylab, fill = fill_legend) +
+    scale_fill_discrete(label = c("High", "Low")) +
+    theme_bw() +
+    theme(legend.position = "top")
+}
+```
+
+1. What are the prior and posterior bulk levels? Prior bulk levels are provided by the Texas State Chemist, and the posterior bulk levels are calculated by our experiments.
+
+```{r, echo = FALSE}
+kable_styling(kable_input = kable(x = b, format = "html", 
+                                  col.names = c("Prior bulk class", "Prior bulk AF (ppb)", 
+                                                "Prior bulk FM (ppm)", "Posterior bulk AF (ppb)", 
+                                                "Posterior bulk FM (ppm)"), digits = 1), 
+              full_width = TRUE)
+```
+
+2. Visualization for aflatoxin.
+
+```{r}
+vis_wt_mycotoxin(data = a, type = "AF")
+```
+
+3. Visualization for fumonisin
+
+```{r}
+vis_wt_mycotoxin(data = a, type = "FM")
+```
+
+# Appendix
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+

@@ -1,0 +1,104 @@
+---
+title: 'Texas: Visualization 5'
+author: "Xianbin Cheng"
+date: "March 5, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Visualize Texas corn data from 2017 (864 observations).
+  
+# Method
+
+1. Load the libraries and read in the file.
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+```
+
+```{r}
+df = read.csv("Texas_2017_combined_864obs.csv", header = TRUE, row.names = 1)
+str(df)
+```
+
+```{r}
+df$AF_class = factor(x = df$AF_class, levels = c("H", "M", "L"))
+df$FM_class = factor(x = df$FM_class, levels = c("H", "M", "L"))
+
+# How many H, M, L's for each mycotoxin?
+summary(df$AF_class)
+summary(df$FM_class)
+```
+
+# Result
+
+1. Create a histogram for mycotoxin distribution grouped by class. Put the x axis on the log scale. It only shows the kernels with mycotoxin concentration > LOD.
+
+```{r}
+AF_hist = ggplot(data = subset(x = df, subset = AF_class != "L"))+
+  geom_histogram(aes(x = AF.ppb., fill = AF_class), bins = 50) +
+  labs(x = "Aflatoxin concentration (ppb)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4, 1e5)) +
+  scale_fill_discrete(name = "Single Kernel Aflatoxin Level", labels = c("[AF]>=50", "[AF]<20")) +
+  coord_cartesian(ylim = c(0, 4)) +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
+```{r}
+FM_hist = ggplot(data = subset(x = df, subset = FM_class != "L"))+
+  geom_histogram(aes(x = FM.ppm., fill = FM_class), bins = 60) +
+  labs(x = "Fumonisin concentration (ppm)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)) +
+  scale_fill_discrete(name = "Single Kernel Fumonisin Level", labels = c("[FM]>=4", "1<=[FM]<4", "[FM]<1")) + 
+  coord_cartesian(ylim = c(0, 4)) +
+  theme_classic()+
+  theme(legend.position = "top")
+```
+
+3. Create a bar chart for both aflatoxin and fumonisin grouped by class.
+
+```{r, warning = FALSE}
+temp = df %>%
+  select(AF_class, FM_class) %>%
+  gather(data = ., key = "Type", value = "Level") %>%
+  group_by(Type, Level) %>%
+  summarise(obs = n())
+temp$Level = factor(x = temp$Level, levels = c("H", "M", "L"))
+
+AF_bar = ggplot(data = subset(x = temp, subset = Type == "AF_class")) +
+  geom_col(aes(x = "Aflatoxin", y = obs, fill = Level), position = "stack") +
+  geom_text(aes(x = "Aflatoxin", y = obs, fill = Level, label = obs), position = position_stack(vjust = 0.5)) +
+  scale_fill_discrete(name = "Single Kernel Mycotoxin Level", labels = c("High", "Low", "Medium")) +
+  labs(x = NULL, y = "Number of Kernels") +
+  theme_classic()+
+  theme(legend.position = "top")
+
+FM_bar = ggplot(data = subset(x = temp, subset = Type == "FM_class")) +
+  geom_col(aes(x = "Fumonisin", y = obs, fill = Level), position = "stack") +
+  geom_text(aes(x = "Fumonisin", y = obs, fill = Level, label = obs), position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(name = "Single Kernel Mycotoxin Level", values = c("coral1", "dodgerblue", "green4"), labels = c("High", "Medium", "Low")) +
+  labs(x = NULL, y = "Number of Kernels") +
+  theme_classic()+
+  theme(legend.position = "top")
+```
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+AF_bar
+AF_hist
+```
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+FM_bar
+FM_hist
+```
+
+```{r, echo = FALSE, eval = FALSE}
+pdf("Texas Corn 2017 Kernels ELISA Results (864obs).pdf")
+  AF_hist
+  FM_hist
+  AF_bar
+  FM_bar
+dev.off()
+```

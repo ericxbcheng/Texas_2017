@@ -1,0 +1,118 @@
+---
+title: 'Texas: Metagenomics 2'
+author: "Xianbin Cheng"
+date: "July 25, 2018"
+output: html_document
+---
+
+# Method #
+
+1. Load the libraries and read in the txt files.
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(tibble)
+```
+
+```{r}
+bac_unw = read.table("16S_unweighted_unifrac_dm.txt", header = TRUE)
+bac_w = read.table("16S_weighted_unifrac_dm.txt", header = TRUE)
+fung_unw = read.table("ITS_unweighted_unifrac_dm.txt", header = TRUE)
+fung_w = read.table("ITS_weighted_unifrac_dm.txt", header = TRUE)
+
+conc = read.csv("JGI_Kernel_Conc.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+str(bac_unw)
+
+str(fung_unw)
+
+str(conc)
+```
+
+2. Assign labels of "H" and "L" to single kernel fumonisin concentration.
+
+```{r}
+conc$FM_class = ifelse(conc$FM.ppm. >= 1, "H", "L")
+conc$FM_class[which(is.na(conc$FM_class))] = "L"
+conc$FM_class = as.factor(conc$FM_class)
+
+summary(conc$FM_class)
+
+str(conc)
+```
+
+3. Assign corresponding bulk fumonisin levels.
+
+```{r}
+bulk = substr(conc$Kernel_ID, start = 1, stop = 1) %>%
+  as.numeric()
+
+bulk[bulk %in% c(1, 4, 7)] = "L"
+bulk[bulk %in% c(2, 5, 8)] = "M"
+bulk[bulk %in% c(3, 6, 9)] = "H"
+
+bulk = as.factor(bulk)
+summary(bulk)
+
+conc = cbind(conc, bulk)
+```
+
+
+4. Create a function that performs multidimensional scaling (Principal Coordinate Analysis) on the distance matrices.
+
+```{r}
+get_mds_plot = function(dist_mat, conc_df, type, plot_title = "PCoA Plot", show_label = TRUE, legend_name){
+  
+  ## Calculate multidimensional scaling
+  a = cmdscale(d = dist_mat, k = 2, eig = TRUE)
+  b = rownames_to_column(as.data.frame(a$points))
+  b$rowname = gsub(pattern = "_", replacement = "-", x = b$rowname)
+  c = right_join(x = conc_df, y = b, by = c("Kernel_ID" = "rowname"))
+  
+  ## Visualization
+  if(show_label == TRUE){
+    ggplot(data = c, aes(x = V1, y = V2)) +
+      geom_point(aes_string(color = type)) +
+      geom_text(aes(label = Kernel_ID), position = position_jitter()) +
+      scale_color_discrete(name = legend_name) +
+      labs(x = "Coordinate 1", y = "Coordinate 2", title = plot_title) +
+      theme_bw()
+  } else {
+    ggplot(data = c, aes(x = V1, y = V2)) +
+      geom_point(aes_string(color = type)) +
+      scale_color_discrete(name = legend_name) +
+      labs(x = "Coordinate 1", y = "Coordinate 2", title = plot_title) +
+      theme_bw()
+  }
+}
+
+```
+
+# Results #
+
+1. Show the PCoA plots with a scale of single kernel fumonisin level. 
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "FM_class", plot_title = "16S Unweighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin Level")
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "FM_class", plot_title = "16S Weighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin Level")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "FM_class", plot_title = "ITS Unweighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin Level")
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "FM_class", plot_title = "ITS Weighted Unifrac DM",show_label = FALSE, legend_name = "Fumonisin Level")
+```
+
+2. Show the PCoA plots with a scale of bulk mycotoxin levels. 
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = bac_unw, conc_df = conc, type = "bulk", plot_title = "16S Unweighted Unifrac DM",show_label = FALSE, legend_name = "Bulk FM Level")
+get_mds_plot(dist_mat = bac_w, conc_df = conc, type = "bulk", plot_title = "16S Weighted Unifrac DM",show_label = FALSE, legend_name = "Bulk FM Level")
+```
+
+```{r, out.width = "50%", echo = FALSE}
+get_mds_plot(dist_mat = fung_unw, conc_df = conc, type = "bulk", plot_title = "ITS Unweighted Unifrac DM",show_label = FALSE, legend_name = "Bulk FM Level")
+get_mds_plot(dist_mat = fung_w, conc_df = conc, type = "bulk", plot_title = "ITS Weighted Unifrac DM",show_label = FALSE, legend_name = "Bulk FM Level")
+```
+

@@ -1,0 +1,90 @@
+---
+title: "Texas Update"
+author: "Xianbin Cheng"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Objective
+
+  * We want to use a new fumonisin threshold (2 ppm) for Texas 2017 corn. 
+      + H: >= 2 ppm
+      + L: < 2 ppm
+  
+# Method
+
+1. Load all necessary files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(reshape)
+```
+
+```{r}
+conc = read.csv("Texas_2017_combined_864obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_raw = read.csv("TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_norm = read.csv("TX X_norm_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_perc = read.csv("TX X_perc_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+# Structure summaries before update
+str(conc)
+str(X_raw,list.len = 10)
+
+# How many L, M, H's for aflatoxin before update?
+summary(as.factor(conc$AF_class))
+summary(as.factor(X_raw$AF_class))
+
+# How many L, M, H's for fumonisin before update?
+summary(as.factor(conc$FM_class))
+summary(as.factor(X_raw$FM_class))
+```
+
+2. Update the threshold and write new csv files.
+
+```{r}
+# Update FM_class in the ELISA csv
+conc2 = conc
+conc2$FM_class = ifelse(test = conc2$FM.ppm. >= 2, yes = "H", no = "L")
+
+a = cbind.data.frame(Kernel_ID = conc2$Kernel_ID, 
+                     FM_class = conc2$FM_class, 
+                     stringsAsFactors = FALSE) %>%
+  right_join(x = ., y = data.frame(Kernel_ID = X_raw$Kernel_ID, 
+                                   AF_class = X_raw$AF_class, 
+                                   stringsAsFactors = FALSE), 
+             by = "Kernel_ID")
+
+# Replaced the class columns for spectra csv
+f_update = function(data, replace){
+  return(cbind.data.frame(replace, data[,4:ncol(data)], stringsAsFactors = FALSE))
+}
+
+X_raw2 = f_update(data = X_raw, replace = a)
+X_norm2 = f_update(data = X_norm, replace = a)
+X_perc2 = f_update(data = X_perc, replace = a)
+```
+
+```{r}
+# Summaries after update
+str(conc2)
+str(X_raw2, list.len = 10)
+
+# How many L, H's for aflatoxin after update?
+summary(as.factor(conc2$AF_class))
+summary(as.factor(X_raw2$AF_class))
+
+# How many L, H's for fumonisin after update?
+summary(as.factor(conc2$FM_class))
+summary(as.factor(X_raw2$FM_class))
+```
+
+```{r, eval = FALSE, echo = TRUE}
+write.csv(x = conc2, file = "Texas_2017_combined_864obs.csv")
+write.csv(x = X_raw2, file = "TX X_Conc_1680_obs.csv")
+write.csv(x = X_norm2, file = "TX X_norm_Conc_1680_obs.csv")
+write.csv(x = X_perc2, file = "TX X_perc_Conc_1680_obs.csv")
+```

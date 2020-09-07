@@ -1,0 +1,329 @@
+---
+title: 'Texas Machine Learning 6: Classification for Fumonisin (new threshold)'
+author: "Xianbin Cheng"
+date: "4/1/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Objective
+
+  * We want to build fumonisin classification model based on the new threshold: 2 ppm.
+  
+# Method
+
+1. Read files and load libraries.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(caret)
+library(mda)
+library(kernlab)
+library(gbm)
+library(ada)
+library(ranger)
+library(kableExtra)
+library(doParallel)
+```
+
+```{r, message = FALSE, warning = FALSE}
+norm_data = read_csv(file = "TX X_norm_Conc_1680_obs.csv")
+FM_class = norm_data$FM_class
+
+spec_data = norm_data %>%
+  dplyr::select(-c(X1, Kernel_ID, AF_class, FM_class, Spec_ID_all)) %>%
+  as.matrix()
+
+str(norm_data, list.len = 8, give.attr = FALSE)
+summary(as.factor(FM_class))
+```
+
+2. Train models
+
+  * Train-test split ratio = 7:3
+  * Up-sampling of the minority class in the training set
+  * 5-fold cross-validation
+  * Using "sensitivity" as a metric for parameter tuning
+  * Algorithms:
+    + Stochastic gradient boosting
+    + SVM with radial basis function
+    + SVM with polynomial basis function
+    + Penalized discriminant analysis
+    + Ada
+    + Random forest
+    + Elastic net
+
+```{r}
+set.seed(123)
+trn_idx = createDataPartition(y = FM_class, p = 0.7, list = FALSE)
+trn_data = spec_data[trn_idx, ]
+tst_data = spec_data[-trn_idx, ]
+trn_FM = FM_class[trn_idx] %>% as.factor()
+tst_FM = FM_class[-trn_idx] %>% as.factor()
+summary(trn_FM)
+summary(tst_FM)
+
+# Up sampling of the minority class
+resamp = upSample(x = trn_data, y = trn_FM)
+trn_data_samp = dplyr::select(.data = resamp, -Class) %>% as.matrix()
+trn_FM_samp = resamp$Class
+summary(trn_FM_samp)
+```
+
+```{r, echo = FALSE}
+rm(spec_data, norm_data, resamp, trn_data_samp)
+```
+
+```{r, eval = FALSE}
+# TrainControl
+my_tolerance = function(x, metric, tol = 5, maximize){
+  tolerance(x = x, metric = metric, tol = tol, maximize = maximize)
+}
+cv_5 = trainControl(method = "cv", number = 5, classProbs = TRUE, summaryFunction = twoClassSummary, 
+                    selectionFunction = "my_tolerance", verboseIter = FALSE, allowParallel = TRUE)
+wt = ifelse(test = trn_FM_samp == "H", yes = 10, no = 1)
+```
+
+```{r, eval = FALSE}
+# Parallel computation
+cl = makeCluster(detectCores() - 2)
+registerDoParallel(cl)
+
+# gradient stochastic boosting
+set.seed(123)
+mod_gbm = train(x = trn_data_samp, 
+                y = trn_FM_samp, 
+                method = "gbm", 
+                preProcess = NULL, 
+                metric = "Sens",
+                trControl = cv_5, 
+                verbose = FALSE,
+                tuneGrid = expand.grid(shrinkage = c(0.01, 0.05, 0.1), 
+                                       n.minobsinnode = c(50, 100), 
+                                       n.trees = c(50, 100), 
+                                       interaction.depth = 1))
+saveRDS(object = mod_gbm, file = "mod_gbm_fm_3.rds")
+
+# SVM with radial basis function
+set.seed(123)
+mod_svm_rad = train(x = trn_data_samp, 
+                    y = trn_FM_samp, 
+                    method = "svmRadial", 
+                    preProcess = NULL, 
+                    metric = "Sens",
+                    trControl = cv_5, 
+                    tuneGrid = expand.grid(sigma = c(0.001, 0.005), 
+                                           C = c(0.1, 0.3, 0.5)))
+saveRDS(object = mod_svm_rad, file = "mod_svm_rad_fm_3.rds")
+
+# SVM with polynomial basis function
+set.seed(123)
+mod_svm_poly = train(x = trn_data_samp, 
+                    y = trn_FM_samp, 
+                    method = "svmPoly", 
+                    preProcess = NULL, 
+                    metric = "Sens", 
+                    trControl = cv_5, 
+                    tuneGrid = expand.grid(degree = 1, 
+                                           scale = c(0.001, 0.005), 
+                                           C = c(0.1, 0.3, 0.5)))
+saveRDS(object = mod_svm_poly, file = "mod_svm_poly_fm_3.rds")
+
+# PDA
+set.seed(123)
+mod_pda = train(x = trn_data_samp, 
+                    y = trn_FM_samp, 
+                    method = "pda2", 
+                    preProcess = NULL, 
+                    metric = "Sens",
+                    trControl = cv_5, 
+                    tuneGrid = expand.grid(df = c(10, 20, 30, 40, 50)))
+saveRDS(object = mod_pda, file = "mod_pda_fm_3.rds")
+
+# Ada
+set.seed(123)
+mod_ada = train(x = trn_data_samp, 
+                    y = trn_FM_samp, 
+                    method = "ada", 
+                    preProcess = NULL, 
+                    metric = "Sens",
+                    trControl = cv_5, 
+                    tuneGrid = expand.grid(iter = c(50, 100, 150), 
+                                           maxdepth = 1, 
+                                           nu = c(0.01, 0.05, 0.1)))
+saveRDS(object = mod_ada, file = "mod_ada_fm_3.rds")
+
+# ranger Rf
+set.seed(123)
+mod_rf = train(x = trn_data_samp,
+               y = trn_FM_samp,
+               method = "ranger",
+               preProcess = NULL,
+               metric = "Sens",
+               trControl = cv_5,
+               num.trees = 100,
+               importance = "impurity",
+               tuneGrid = expand.grid(min.node.size = c(500, 600, 700), 
+                                      mtry = c(1, round(sqrt(ncol(trn_data_samp)))), 
+                                      splitrule = "gini"))
+saveRDS(object = mod_rf, file = "mod_rf_fm_3.rds")
+
+# Glmnet
+set.seed(123)
+mod_glmnet = train(x = trn_data_samp, 
+                   y = trn_FM_samp, 
+                   method = "glmnet", 
+                   preProcess = NULL, 
+                   metric = "Sens", 
+                   trControl = cv_5, 
+                   family = "binomial", 
+                   tuneGrid = expand.grid(alpha = c(0, 0.5, 1), 
+                                          lambda = c(0.001, 0.01)))
+saveRDS(object = mod_glmnet, file = "mod_glmnet_fm_3.rds")
+
+stopCluster(cl)
+
+##### nnet failed
+# set.seed(123)
+# mod_nnet = nnet(x = trn_data_samp, y = trn_FM_samp, size = 1, MaxNWts = 1600)
+
+# QDA (collinear variables --> failed)
+```
+
+```{r, echo = FALSE}
+rds_files = dir(pattern = "_3.rds")
+mods = map(.x = rds_files, .f = readRDS)
+names(mods) = str_remove(string = rds_files, pattern = "_3.rds")
+```
+
+```{r, echo = FALSE}
+get_metrics = function(mod, true){
+  
+  a = confusionMatrix(data = as.factor(mod), reference = as.factor(true), positive = "H")
+  accu = a$overall["Accuracy"]
+  sens = a$byClass["Sensitivity"]
+  spec = a$byClass["Specificity"]
+  return(list(accu, sens, spec))
+}
+
+# Plot non-zero beta_hats
+get_nonzero = function(model){
+  
+  a = model$beta %>%
+    as.matrix() %>%
+    as.data.frame() %>%
+    subset(x = ., subset = `s0` != 0)
+  
+  wavelength = rownames(a) %>% 
+    str_remove(string = ., pattern = "X") %>%
+    as.numeric()
+  
+  a$wavelength = wavelength
+  colnames(a)[1] = "beta"
+  return(a)
+}
+```
+
+```{r, echo = FALSE}
+# GBM
+result_gbm_trn = predict(object = mods$mod_gbm_fm, newdata = trn_data)
+result_gbm = predict(object = mods$mod_gbm_fm, newdata = tst_data)
+
+# SVM radial basis kernel (predictions for mod_svm_rad_fm and mod_svm_rad_fm$finalModel are 99% similar)
+result_svm_rad_trn = predict(object = mods$mod_svm_rad_fm$finalModel, newdata = trn_data)
+result_svm_rad = predict(object = mods$mod_svm_rad_fm$finalModel, newdata = tst_data)
+
+# SVM polynomial basis kernel
+result_svm_poly_trn = predict(object = mods$mod_svm_poly_fm$finalModel, newdata = trn_data)
+result_svm_poly = predict(object = mods$mod_svm_poly_fm$finalModel, newdata = tst_data)
+
+# PDA (predictions for mod and mod$finalModel are the same)
+result_pda_trn = predict(object = mods$mod_pda_fm, newdata = trn_data)
+result_pda = predict(object = mods$mod_pda_fm, newdata = tst_data)
+
+# Ada
+result_ada_trn = predict(object = mods$mod_ada_fm, newdata = trn_data)
+result_ada = predict(object = mods$mod_ada_fm, newdata = tst_data)
+
+# Rf (ranger)
+result_rf_trn = predict(object = mods$mod_rf_fm, newdata = trn_data)
+result_rf = predict(object = mods$mod_rf_fm, newdata = tst_data)
+
+# Glmnet
+result_glmnet_trn = predict(object = mods$mod_glmnet_fm, newdata = trn_data)
+result_glmnet = predict(object = mods$mod_glmnet_fm, newdata = tst_data)
+```
+
+# Result
+
+  Training and testing sensitivity and specificity values of each model with tuned parameters are shown here.
+
+```{r, echo = FALSE}
+list_trn = list(result_ada_trn, result_gbm_trn, result_glmnet_trn, result_pda_trn, result_rf_trn, result_svm_poly_trn, result_svm_rad_trn)
+list_tst = list(result_ada, result_gbm, result_glmnet, result_pda, result_rf, result_svm_poly, result_svm_rad)
+
+metrics_trn = sapply(X = list_trn, FUN = get_metrics, true = trn_FM)
+metrics_tst = sapply(X = list_tst, FUN = get_metrics, true = tst_FM)
+
+get_bestTune = function(model){
+  a = model$bestTune
+  param = colnames(a)
+  return(str_c(param, a, sep = " = ", collapse = ", "))
+}
+
+result_table = rbind.data.frame(t(metrics_trn), t(metrics_tst)) %>%
+  rename(.data = ., "Accuracy" = "V1", "Sensitivity" = "V2", "Specificity" = "V3") %>%
+  mutate(Model = rep(x = c("Ada", "gbm", "glmnet","PDA", "rf", "SVM_poly","SVM_radial"), times = 2),
+         Dataset = rep(x = c("training", "testing"), each = 7), 
+         Parameters = rep(x = sapply(X = mods, FUN = get_bestTune), times = 2)) %>%
+  dplyr::select(.data = ., c("Model", "Parameters","Dataset", "Accuracy", "Sensitivity", "Specificity")) %>%
+  arrange(Model, desc(Dataset))
+
+result_table$Accuracy = unlist(result_table$Accuracy)
+result_table$Sensitivity = unlist(result_table$Sensitivity)
+result_table$Specificity = unlist(result_table$Specificity)
+
+kable_styling(kable_input = kable(result_table, format = "html", digits = 4), full_width = TRUE)
+```
+
+```{r, echo = FALSE}
+temp = result_table %>%
+  gather(data = ., key = "Metric", value = "Value", -c(Model, Dataset, Parameters))
+temp$Value = unlist(temp$Value)
+
+ggplot(data = temp, aes(x = as.factor(Model), y = Value, color = as.factor(Metric))) +
+  geom_point() +
+  scale_color_discrete(name = "Metric") +
+  labs(x = "Model", "Metric Value") +
+  coord_cartesian(ylim = c(0,1)) +
+  facet_grid(as.factor(Dataset) ~ .) +
+  theme_bw()
+```
+
+# Conclusion
+
+* The **penalized discriminant analysis** and the **regularized logistic regression** worked the best when taking both sensitivity and specificity into consideration.
+
+# Appendix
+
+1. The details of parameter tuning of each model are presented here.
+
+```{r, echo = FALSE}
+mods$mod_gbm_fm
+mods$mod_pda_fm
+mods$mod_svm_rad_fm
+mods$mod_ada_fm
+mods$mod_rf_fm
+mods$mod_glmnet_fm
+mods$mod_svm_poly_fm
+```
+
+2. Reproducibility
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+

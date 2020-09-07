@@ -1,0 +1,200 @@
+---
+title: "Texas Visualization 7"
+author: "Xianbin Cheng"
+date: "3/30/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, cache = TRUE)
+```
+
+# Objective
+
+  * Re-visualize the Texas 2017 corn results with the new FM threshold (2 ppm), including ELISA (864 observations) and spectra results (1680 observations).
+  
+# Method
+
+1. Read files.
+
+```{r, warning = FALSE, message = FALSE, echo = TRUE}
+library(tidyverse)
+library(reshape)
+library(cowplot)
+```
+
+```{r, echo = TRUE}
+# ELISA results
+conc = read.csv(file = "Texas_2017_combined_864obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+str(conc, list.len = 10)
+summary(as.factor(conc$AF_class))
+summary(as.factor(conc$FM_class))
+
+# Spectra
+X_raw = read.csv(file = "TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_norm = read.csv(file = "TX X_norm_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_perc = read.csv(file = "TX X_perc_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+str(X_raw, list.len = 10)
+summary(as.factor(X_raw$AF_class))
+summary(as.factor(X_raw$FM_class))
+```
+
+2. Visualize spectra.
+
+```{r, echo = TRUE}
+## Convert a wide dataset into a long dataset
+my_melt = function(df){
+  df1 = df %>%
+    gather(., key = "nm", value = "value", -c(Kernel_ID, Spec_ID_all, AF_class, FM_class))
+  df1$nm = gsub(pattern = "X", replacement = "", x = df1$nm) %>% as.numeric()
+  return(df1)
+}
+
+## Extract the observation at the 2.5th percentile and 97.5th percentile
+lb <- function(x, probs = 0.025){quantile(x, probs)}
+ub <- function(x, probs = 0.975){quantile(x, probs)}
+
+## Generate spectral graph of the medians at each wavelength with 5th - 95th percentile interval
+spec_plot = function(data, class, yaxis = "Intensity", legend, labels){
+  
+  ### Generate columns of observations at 2.5th, 50th and 97.5th percentile
+  df = data %>%
+    group_by_(class, "nm") %>%
+    summarise(lower = lb(value), med = median(value), upper = ub(value))
+  
+  ### Visualize
+  ggplot(data = df) +
+    geom_line(aes_string(x = "nm", y = "med", color = class)) +
+    geom_ribbon(aes_string(x = "nm", ymin = "lower", ymax = "upper", fill = class), alpha = 0.3) +
+    labs(x = "Wavelength (nm)", y = yaxis, color = legend, fill = legend) +
+    scale_color_discrete(labels = labels) +
+    scale_fill_discrete(labels = labels) +
+    theme_classic() +
+    theme(legend.position = "top")
+}
+```
+
+```{r, echo = TRUE}
+# Convert original data to long-format dataframes
+X_raw_long = my_melt(df = X_raw)
+X_norm_long = my_melt(df = X_norm)
+X_perc_long = my_melt(df = X_perc)
+```
+
+```{r, warning = FALSE, echo = TRUE}
+## Aflatoxin: Raw - Background
+af_raw_plot = spec_plot(data = X_raw_long, class = "AF_class", yaxis = "Intensity (Raw - Background)", legend = "Single Kernel Aflatoxin Level", labels = c(">= 20 ppb", "< 20 ppb"))
+
+## Aflatoxin: Normalized
+af_norm_plot = spec_plot(data = X_norm_long, class = "AF_class", yaxis = "Intensity (Normalized)", legend = "Single Kernel Aflatoxin Level", labels = c(">= 20 ppb", "< 20 ppb"))
+
+## AF: percent reflectance
+af_perc_plot = spec_plot(data = X_perc_long, class = "AF_class", yaxis = "Intensity (Percent Reflectance)", legend = "Single Kernel Aflatoxin Level", labels = c(">= 20 ppb", "< 20 ppb"))
+
+## Fumonisin: Raw - Background
+fm_raw_plot = spec_plot(data = X_raw_long, class = "FM_class", yaxis = "Intensity (Raw - Background)", legend = "Single Kernel Fumonisin Level", labels = c(">= 2 ppm", "< 2 ppm"))
+
+## Fumonisin: Normalized
+fm_norm_plot = spec_plot(data = X_norm_long, class = "FM_class", yaxis = "Intensity (Normalized)", legend = "Single Kernel Fumonisin Level", labels = c(">= 2 ppm", "< 2 ppm"))
+
+## FM: percent reflectance
+fm_perc_plot = spec_plot(data = X_perc_long, class = "FM_class", yaxis = "Intensity (Percent Reflectance)", legend = "Single Kernel Fumonisin Level", labels = c(">= 2 ppm", "< 2 ppm"))
+```
+
+# Result
+
+1. Visualization of ELISA results
+
+```{r}
+AF_hist = ggplot(data = subset(x = conc, subset = AF_class != "L"))+
+  geom_histogram(aes(x = AF.ppb., fill = AF_class), bins = 50) +
+  labs(x = "Aflatoxin concentration (ppb)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4, 1e5)) +
+  scale_fill_discrete(name = "Single Kernel Aflatoxin Level", labels = ">= 20 ppb") +
+  coord_cartesian(ylim = c(0, 4)) +
+  theme_classic() +
+  theme(legend.position = "top")
+```
+
+```{r}
+FM_hist = ggplot(data = subset(x = conc, subset = FM_class != "L"))+
+  geom_histogram(aes(x = FM.ppm., fill = FM_class), bins = 60) +
+  labs(x = "Fumonisin concentration (ppm)", y = "Number of Kernels")+
+  scale_x_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)) +
+  scale_fill_discrete(name = "Single Kernel Fumonisin Level", labels = ">= 2 ppm") + 
+  coord_cartesian(ylim = c(0, 4)) +
+  theme_classic()+
+  theme(legend.position = "top")
+```
+
+```{r, warning = FALSE}
+temp = conc %>%
+  select(AF_class, FM_class) %>%
+  gather(data = ., key = "Type", value = "Level") %>%
+  group_by(Type, Level) %>%
+  summarise(obs = n())
+
+AF_bar = ggplot(data = subset(x = temp, subset = Type == "AF_class")) +
+  geom_col(aes(x = "Aflatoxin", y = obs, fill = Level), position = "stack") +
+  geom_text(aes(x = "Aflatoxin", y = obs, fill = Level, label = obs), position = position_stack(vjust = 0.5)) +
+  scale_fill_discrete(name = "Single Kernel Aflatoxin Level", labels = c(">= 20 ppb", "< 20 ppb")) +
+  labs(x = NULL, y = "Number of Kernels") +
+  theme_classic()+
+  theme(legend.position = "top")
+
+FM_bar = ggplot(data = subset(x = temp, subset = Type == "FM_class")) +
+  geom_col(aes(x = "Fumonisin", y = obs, fill = Level), position = "stack") +
+  geom_text(aes(x = "Fumonisin", y = obs, fill = Level, label = obs), position = position_stack(vjust = 0.5)) +
+  scale_fill_discrete(name = "Single Kernel Fumonisin Level", labels = c(">= 2 ppm", "< 2 ppm")) +
+  labs(x = NULL, y = "Number of Kernels") +
+  theme_classic()+
+  theme(legend.position = "top")
+```
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+AF_bar
+AF_hist
+```
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+FM_bar
+FM_hist
+```
+
+2. Visualization of spectra results.
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+af_raw_plot
+af_norm_plot
+af_perc_plot
+fm_raw_plot
+fm_norm_plot
+fm_perc_plot
+```
+
+# Appendix
+
+```{r, echo = FALSE}
+sessionInfo()
+```
+
+```{r, eval = FALSE}
+pdf("Texas Corn 2017 Kernels ELISA Results (864obs) 2-classes.pdf")
+  AF_hist
+  FM_hist
+  AF_bar
+  FM_bar
+dev.off()
+
+pdf(file = "Texas Corn 2017 Spectra (1680obs) 2-classes.pdf")
+  af_raw_plot
+  af_norm_plot
+  af_perc_plot
+  fm_raw_plot
+  fm_norm_plot
+  fm_perc_plot
+dev.off()
+```
+

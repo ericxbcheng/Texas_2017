@@ -1,0 +1,157 @@
+---
+title: "Texas Skewed Distribution of Mycotoxin"
+author: "Xianbin Cheng"
+date: "May 2, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load the libraries and read in files.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r}
+weight = read.csv("TX weight.csv", header = TRUE, stringsAsFactors = FALSE)
+bulk = read.csv("Bulk Level.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+str(weight)
+```
+
+```{r, echo = FALSE}
+kable_styling(kable(bulk, format= "html"), full_width = FALSE)
+```
+
+2. Pre-process the dataset by adding two variables: `Plate_ID` and `Kernel`. `Plate_ID` is the first three digits in the `Kernel_ID` and `Kernel` is the individual kernel identifier. Also, add the class labels `AF_class` and `FM_class`.
+
+```{r}
+## Aflatoxin class
+AF_class = ifelse(weight$AF.ppb. < 20, "L", "M")
+AF_class[weight$AF.ppb. >= 50] = "H"
+AF_class[is.na(weight$AF.ppb.)] = "L"
+AF_class = factor(AF_class, levels = c("H", "M", "L"))
+summary(AF_class)
+
+## Fumonisin class
+FM_class = ifelse(weight$FM.ppm. < 1, "L", "M")
+FM_class[weight$FM.ppm. >= 4] = "H"
+FM_class[is.na(weight$FM.ppm.)] = "L"
+FM_class = factor(FM_class, levels = c("H", "M", "L"))
+summary(FM_class)
+
+## Combine by columns
+weight2 = weight %>%
+  mutate(Plate_ID = substr(Kernel_ID, start = 1, stop = 3),
+         Kernel = substr(Kernel_ID, start = 5, stop = 6),
+         AF_class = AF_class,
+         FM_class = FM_class) 
+```
+
+```{r}
+str(weight2)
+```
+
+3. Calculate the weight fraction of each kernel within each bulk group and call it `wt_frac`. `wt_frac`$ = m_i / m_{total}$.
+
+```{r}
+## Create a function that calculates the weight fraction.
+wt_frac_func = function(df){
+  df = df %>%
+    mutate(wt_frac = m.kernel..g / sum(m.kernel..g))
+}
+
+## Split weight2 based on Plate_ID, apply wt_frac_func() to each subset, and combine the results by rows.
+weight3 = weight2 %>%
+  split(x = ., f = weight2$Plate_ID) %>%
+  lapply(X = ., FUN = wt_frac_func) %>%
+  do.call(what = rbind.data.frame, args = .)
+```
+
+```{r}
+str(weight3)
+```
+
+4. Calculate the weighted aflatoxin and fumonisin concentration for each kernel. `wt_af` = `AF.ppb` x `wt_frac`. `wt_fm` = `FM.ppm.` x `wt_frac`.
+
+```{r}
+weight4 = weight3 %>%
+  mutate(wt_af = AF.ppb. * wt_frac,
+         wt_fm = FM.ppm. * wt_frac)
+
+weight4$Kernel = as.numeric(weight4$Kernel)
+```
+
+```{r}
+str(weight4)
+```
+
+5. Sort the dataset on `Plate_ID` and `Kernel`.
+
+```{r}
+weight5 = weight4 %>% 
+  arrange(.data = ., Plate_ID, Kernel)
+```
+
+```{r}
+str(weight5)
+```
+
+6. Split the dataset by bulk class (LL = 1, LM = 2, LH = 3, ML = 4, MM = 5, MH = 6, HL = 7, HM = 8, HH = 9).
+
+```{r}
+## Add a numeric column to the dataset "bulk" to identify bulk class.
+bulk$Bulk_class = 1:9 %>% as.character()
+
+## Split the "weight5" dataset.
+bulk_group = weight5 %>%
+  mutate(Bulk_class = substr(Plate_ID, start = 1, stop = 1)) %>%
+  left_join(x = ., y = bulk, by = "Bulk_class") %>%
+  split(x = ., f = .$Bulk_class)
+```
+
+```{r}
+str(bulk_group[[1]])
+```
+
+6. Visualize the weighted aflatoxin and fumonisin for each bulk class.
+
+```{r}
+## Create a function for visualization.
+vis_af = function(df){
+  ggplot(data = df) +
+    geom_bar(aes(x = 1:length(df$Kernel_ID), y = wt_af, fill = AF_class), stat = "identity") +
+    labs(title = paste("Bulk Class: ", unique(df$Class), " (AF/FM = ", unique(df$Bulk_Aflatoxin.ppb.),"/", unique(df$Bulk_Fumonisin.ppm.),")",sep = ""),
+         y = "Weighted aflatoxin (ppb)",
+         x = "Kernel") +
+    scale_fill_discrete(name = "Individual AF Class") +
+    theme_bw()
+}
+
+vis_fm = function(df){
+  ggplot(data = df) +
+    geom_bar(aes(x = 1:length(df$Kernel_ID), y = wt_fm, fill = FM_class), stat = "identity") +
+    labs(title = paste("Bulk Class: ", unique(df$Class), " (AF/FM = ", unique(df$Bulk_Aflatoxin.ppb.),"/", unique(df$Bulk_Fumonisin.ppm.),")",sep = ""),
+         y = "Weighted fumonisin (ppm)",
+         x = "Kernel") +
+    scale_fill_discrete(name = "Individual FM Class") +
+    theme_bw()
+}
+```
+
+## Result ##
+
+```{r, warning = FALSE, message=FALSE}
+## Aflatoxin
+lapply(X = bulk_group, FUN = vis_af)
+```
+
+```{r, warning = FALSE, message = FALSE}
+## Fumonisin
+lapply(X = bulk_group, FUN = vis_fm)
+```
+

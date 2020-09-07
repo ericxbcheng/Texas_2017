@@ -1,0 +1,132 @@
+---
+title: "Texas Spectra Cleaning"
+author: "Xianbin Cheng"
+date: "March 7, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Compare the backgrounds and references during the Texas corn 2017 period
+  * Re-make normalized spectra data from the original design matrix X
+  * Make percent reflectance spectra data from 
+
+# Method
+
+1. Load libraries and files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r}
+X = read.csv("TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X$AF_class = factor(X$AF_class, levels = c("H", "M", "L"))
+X$FM_class = factor(X$FM_class, levels = c("H", "M", "L"))
+
+str(X, list.len = 10)
+```
+
+```{r}
+# Backgrounds and references
+Bg_Rf = read.csv("TX Bg_Rf.csv", header = TRUE, stringsAsFactors = FALSE)
+str(Bg_Rf, list.len = 10)
+```
+
+2. Re-make the normalized data by centering and scaling the `X`.
+
+```{r, eval = FALSE}
+temp = X[ ,5:ncol(X)] %>%
+  scale(x = ., center = TRUE, scale = TRUE)
+
+X_norm = cbind(X[ ,1:4], temp)
+```
+
+3. Clean up the spectra transformed by percent reflectance. The remaining merging with concentration information is conducted in 'Texas Data Cleaning 6.Rmd'.
+
+```{r, eval = FALSE}
+# Percent reflectance
+perc1 = dir(pattern = "X1_perc")
+perc2 = dir(pattern = "X2_perc")
+
+perc1_csv = map(.x = perc1, .f = read.csv, header = TRUE, stringsAsFactors = FALSE) %>%
+  bind_rows()
+
+perc2_csv = map(.x = perc2, .f = read.csv, header = TRUE, stringsAsFactors = FALSE) %>%
+  bind_rows()
+```
+
+```{r, echo = FALSE, eval = FALSE}
+write.csv(x = perc1_csv, file = "TX X1_perc.csv", row.names = TRUE)
+write.csv(x = perc2_csv, file = "TX X2_perc.csv", row.names = TRUE)
+```
+
+4. Clean the backgrounds and references.
+
+```{r, eval = FALSE}
+batches = list(t09_20 = c("HH1", "LL1"),
+                     t09_22 = c("HH1D"),
+                     t10_18 = c("LH1", "LH2", "MH1", "MH2"),
+                     t10_19 = c("LH1D","LH2D", "MH1D", "MH2D"),
+                     t11_02 = c("HH2", "LL2", "HL1", "HL2", "LH3", "LH4", "ML1", "ML2"),
+                     t11_07 = c("HH2D", "LL2D", "LH3D", "LH4D", "HL1D", "HL2D", "ML1D", "ML2D"),
+                     t11_14 = c("LM1", "LM2", "MM1", "MM2", "HM1", "HM2"),
+                     t11_15 = c("LM1D",  "LM2D", "MM1D", "MM2D", "HM1D", "HM2D")
+                     )
+
+spec_meta = data.frame(Date = names(unlist(batches)),
+                      Spec = unlist(batches), row.names = NULL) %>%
+  mutate(Date = substr(Date, start = 2, stop = 6),
+         Bulk_class = substr(Spec, start = 1, stop = 2),
+         Plate = substr(Spec, start = 3, stop = 3),
+         Duplicate = str_detect(string = Spec, pattern = "D"))
+```
+
+```{r, echo = FALSE}
+spec_meta = read.csv("TX spectra metadata.csv", header = TRUE, stringsAsFactors = FALSE, row.names = 1)
+str(spec_meta)
+```
+
+5. Visualize backgrounds and references.
+
+```{r}
+## Convert a wide dataset into a long dataset
+my_melt = function(df){
+  df1 = df %>%
+    gather(., key = "nm", value = "value", -c(Date, Type, Name))
+  df1$nm = gsub(pattern = "X", replacement = "", x = df1$nm) %>% as.numeric()
+  return(df1)
+}
+
+Bg_Rf_long = my_melt(df = Bg_Rf)
+```
+
+# Result
+
+1. Visualize the backgrounds.
+
+```{r, fig.width = 13}
+ggplot(data = subset(x = Bg_Rf_long, subset = Type == "Bg")) +
+  geom_line(aes_string(x = "nm", y = "value", color = "Date")) +
+  labs(x = "Wavelength (nm)", y = "Intensity", color = "Date") +
+  theme_bw() +
+  theme(legend.position = "right")
+```
+
+2. Visualize the references (corrected by Raw A/D counts - Background A/D counts).
+
+```{r, fig.width = 13}
+ggplot(data = subset(x = Bg_Rf_long, subset = Type == "Rf")) +
+  geom_line(aes_string(x = "nm", y = "value", color = "Date")) +
+  labs(x = "Wavelength (nm)", y = "Intensity", color = "Date") +
+  theme_bw() +
+  theme(legend.position = "right")
+```
+
+3. A summary table of spectra metadata.
+
+```{r}
+kable_styling(kable(spec_meta, format = "html"), full_width = FALSE)
+```
+

@@ -1,0 +1,80 @@
+---
+title: "Texas Data Cleaning 3"
+author: "Xianbin Cheng"
+date: "April 19, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load the libraries and read in the files.
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(reshape2)
+```
+
+```{r}
+## First scans
+X1 = read.csv("TX X1.csv", header = TRUE, stringsAsFactors = FALSE)
+X1_norm = read.csv("TX X1_norm.csv", header = TRUE, stringsAsFactors = FALSE)
+
+## Second scans
+X2 = read.csv("TX X2.csv", header = TRUE, stringsAsFactors = FALSE)
+X2_norm = read.csv("TX X2_norm.csv", header = TRUE, stringsAsFactors = FALSE)
+
+## Spec_ID and Conc
+Spec_Conc = read.csv("TX Spec_Conc 528_obs.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+X1[1:5, 1:10]
+```
+```{r}
+head(Spec_Conc)
+```
+
+2. Merge the datasets with `AF_class` and `FM_class` by joining on either `Spec_ID1` or `Spec_ID2`. Then combine the first scans and second scans based on the transformation type. Beware of `NA`s in `Spec_ID2`.
+
+```{r}
+## Make a subset of Spec_Conc that contains AF_class, FM_class, Spec_ID1, Spec_ID2
+spec_sub = Spec_Conc %>%
+  select(AF_class, FM_class, Spec_ID1, Spec_ID2)
+
+## X1 and X1_norm
+X1_class = left_join(x = spec_sub, y = X1, by = c("Spec_ID1" = "X"))
+X1_norm_class = left_join(x = spec_sub, y = X1_norm, by = c("Spec_ID1" = "X"))
+
+## X2 and X2_norm
+X2_class = inner_join(x = spec_sub, y = X2, by = c("Spec_ID2" = "X"))
+X2_norm_class = inner_join(x = spec_sub, y = X2_norm, by = c("Spec_ID2" = "X"))
+```
+
+```{r}
+## Set up the Spec_ID_all column
+Spec_ID_all = c(X1_class$Spec_ID1, X2_class$Spec_ID2) 
+
+## Combine X1 and X2. Remove Spec_ID1 and Spec_ID2 and add Spec_ID_all.
+X_class = rbind(X1_class, X2_class) %>%
+  select(-c(Spec_ID1, Spec_ID2)) %>%
+  cbind(Spec_ID_all, .)
+  
+## Combine X1_norm and X2_norm. Remove Spec_ID1 and Spec_ID2 and add Spec_ID_all.
+X_norm_class = rbind(X1_norm_class, X2_norm_class) %>%
+  select(-c(Spec_ID1, Spec_ID2)) %>%
+  cbind(Spec_ID_all, .)
+```
+
+```{r}
+str(X_class)
+str(X_norm_class)
+```
+
+```{r, echo = FALSE, eval = FALSE}
+write.csv(X_class, "TX X_Conc_1008_obs.csv")
+write.csv(X_norm_class, "TX X_norm_Conc_1008_obs.csv")
+rm(X1, X1_norm,X1_norm_class, X1_class, X2, X2_norm, X2_class, X2_norm_class)
+```
+

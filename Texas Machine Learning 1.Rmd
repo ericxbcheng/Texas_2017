@@ -1,0 +1,221 @@
+---
+title: "Texas Machine Learning 1"
+author: "Xianbin Cheng"
+date: "April 26, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load the libraries and read in the files.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(party)
+library(doParallel)
+```
+
+```{r}
+X_Conc = read.csv("TX X_Conc_1008_obs.csv", header = TRUE, row.names = 1)
+X_norm_Conc = read.csv("TX X_norm_Conc_1008_obs.csv", header = TRUE, row.names = 1)
+```
+
+```{r}
+str(X_Conc, list.len = 10)
+str(X_norm_Conc, list.len = 10)
+```
+
+3. Extract out the texts and labels. Convert the predictor data frame into a matrix.
+
+```{r}
+AF = X_Conc[ ,"AF_class"]
+FM = X_Conc[ ,"FM_class"]
+
+summary(AF)
+summary(FM)
+
+X = X_Conc %>%
+  select(-c(Spec_ID_all, AF_class, FM_class)) %>%
+  as.matrix()
+
+X_norm = X_norm_Conc %>%
+  select(-c(Spec_ID_all, AF_class, FM_class)) %>%
+  as.matrix()
+```
+
+```{r}
+X[1:5,1:10]
+X_norm[1:5, 1:10]
+```
+
+
+2. Exploratory analysis
+
+ - Build a single decision tree to get a sense of which features might be important for classification.
+ - Look at the density feature plots for wavelengths around 390 nm, 550 nm and 1050 nm as they may be important for classification.
+
+```{r}
+## Train a single tree model on X_norm to classify aflatoxin level.
+class_tree_af = rpart(AF ~ X_norm)
+
+## Train a single tree model on X_norm to classify fumonisin level.
+class_tree_fm = rpart(FM ~ X_norm)
+```
+
+```{r, echo = FALSE}
+rpart.plot(class_tree_af, type = 4, main = "Aflatoxin")
+rpart.plot(class_tree_fm, type = 4, main = "Fumonisin")
+```
+
+```{r, echo = FALSE, fig.align = "center"}
+featurePlot(x = subset(X_norm, select = c(X310, X444, X421)), y = X_Conc$AF_class, plot = "density", auto.key = TRUE, main = "Aflatoxin")
+featurePlot(x = subset(X_norm, select = c(X435.5, X436.5, X449, X504, X521, X525.5, X567.5, X832.5, X1032, X1041)), 
+            y = X_Conc$FM_class, plot = "density", auto.key = TRUE, main = "Fumonisin")
+```
+
+3. Create a training set and a test set with a test-train split ratio of 25:75.
+
+```{r}
+set.seed(123)
+trn_ind_af = createDataPartition(y = AF, p = 0.75, list = FALSE)
+trn_ind_fm = createDataPartition(y = FM, p = 0.75, list = FALSE)
+```
+
+4. We will consider the following method:
+
+* Random forest (`rf`)
+    + `mtry` = `r floor(sqrt(ncol(X)))`
+    + Calculate OOB error
+    + Calculate importance
+
+For each method we will consider only one set of features:
+
+* Additive: All 1565 features
+
+We will also consider different types of pre-processing:
+
+* None
+* Normalized (centered and scaled)
+
+The model training process will be accelerated by parallelization.
+
+```{r}
+cl = makeCluster(detectCores() - 2)
+registerDoParallel(cl)
+```
+
+```{r}
+mtry_chosen = floor(sqrt(ncol(X)))
+```
+
+```{r, eval = FALSE}
+## Pre-processing: None
+set.seed(123)
+mod_rf_af = train(x = X[trn_ind_af, ], 
+                  y = AF[trn_ind_af],
+                  xtest = X[-trn_ind_af, ],
+                  ytest = AF[-trn_ind_af],
+                  method = "rf", 
+                  importance = TRUE,
+                  trControl = trainControl(method = "oob", classProbs = TRUE, allowParallel = TRUE), 
+                  tuneGrid = expand.grid(mtry = mtry_chosen)
+)
+
+set.seed(123)
+mod_rf_fm = train(x = X[trn_ind_fm, ],
+                  y = FM[trn_ind_fm],
+                  xtest = X[-trn_ind_fm, ],
+                  ytest = FM[-trn_ind_fm],
+                  method = "rf",
+                  importance = TRUE,
+                  trControl = trainControl(method = "oob", classProbs = TRUE, allowParallel = TRUE),
+                  tuneGrid = expand.grid(mtry = mtry_chosen)
+)
+```
+
+```{r, eval = FALSE}
+## Pre-processing: Normalized
+set.seed(123)
+mod_rf_norm_af = train(x = X_norm[trn_ind_af, ], 
+                  y = AF[trn_ind_af],
+                  xtest = X_norm[-trn_ind_af, ],
+                  ytest = AF[-trn_ind_af],
+                  method = "rf", 
+                  importance = TRUE,
+                  trControl = trainControl(method = "oob", classProbs = TRUE, allowParallel = TRUE), 
+                  tuneGrid = expand.grid(mtry = mtry_chosen)
+)
+
+set.seed(123)
+mod_rf_norm_fm = train(x = X_norm[trn_ind_fm, ],
+                  y = FM[trn_ind_fm],
+                  xtest = X_norm[-trn_ind_fm, ],
+                  ytest = FM[-trn_ind_fm],
+                  method = "rf",
+                  importance = TRUE,
+                  trControl = trainControl(method = "oob", classProbs = TRUE, allowParallel = TRUE),
+                  tuneGrid = expand.grid(mtry = mtry_chosen)
+)
+```
+
+```{r, echo = FALSE}
+mod_rf_af = readRDS("mod_rf_af.rds")
+mod_rf_fm = readRDS("mod_rf_fm.rds")
+mod_rf_norm_af = readRDS("mod_rf_norm_af.rds")
+mod_rf_norm_fm = readRDS("mod_rf_norm_fm.rds")
+```
+
+
+## Result ##
+
+1. Show the classification error rate for all the models.
+
+```{r}
+## Transformation: none. Classification: Aflatoxin.
+mod_rf_af$finalModel
+
+## Transformation: none. Classification: Fumonisin.
+mod_rf_fm$finalModel
+
+## Transformation: normalized. Classification: Aflatoxin.
+mod_rf_norm_af$finalModel
+
+## Transformation: normalized. Classification: Fumonisin.
+mod_rf_norm_fm$finalModel
+```
+
+2. Show the importance plots.
+
+```{r}
+## Create a function for visualizing mean decrease in accuracy.
+MDA = function(model){
+  a = importance(model) %>% as.data.frame()
+  wl = gsub(pattern = "X", replacement = "", x = rownames(a)) %>% as.numeric()
+  
+  ggplot(data = a) +
+    geom_point(aes(x = wl, y = a$MeanDecreaseAccuracy, color = a$MeanDecreaseAccuracy)) +
+    scale_color_gradient(low="grey", high="darkgreen", name="") +
+    labs(x="Wavelength (nm)", y="Mean Decrease in Accuracy") +
+    theme_bw()
+}
+```
+
+```{r}
+## Transformation: none. Classification: Aflatoxin.
+MDA(mod_rf_af$finalModel)
+
+## Transformation: none. Classification: Fumonisin.
+MDA(mod_rf_fm$finalModel)
+
+## Transformation: normalized. Classification: Aflatoxin.
+MDA(mod_rf_norm_af$finalModel)
+
+## Transformation: normalized. Classification: Fumonisin.
+MDA(mod_rf_norm_fm$finalModel)
+```
+
+

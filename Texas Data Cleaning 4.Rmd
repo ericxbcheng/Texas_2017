@@ -1,0 +1,119 @@
+---
+title: 'Texas: Data Cleaning 4'
+author: "Xianbin Cheng"
+date: "February 4, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Clean up the NA's in the Texas ELISA data before 04/12/2018
+  
+# Method
+
+1. Load in necessary libraries and files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+```
+
+2. Summary before cleaning.
+
+```{r}
+conc = read.csv("Texas Conc and Class 04_12_2018.csv", header = TRUE, stringsAsFactors = FALSE, row.names = 1)
+conc_preclean = conc %>%
+  mutate(plate = str_split(string = conc$Kernel_ID, pattern = "-", simplify = TRUE)[,1],
+         kernel_ID = str_split(string = conc$Kernel_ID, pattern = "-", simplify = TRUE)[,2] %>% as.numeric()) %>%
+  arrange(.data = ., plate, kernel_ID) %>%
+  group_by(plate)
+
+str(conc_preclean)
+```
+
+2. Load in the cleaned version.
+
+```{r}
+conc2 = read.csv("Texas Conc and Class 02_05_19.csv", header = TRUE, stringsAsFactors = FALSE, row.names = 1)
+str(conc2)
+```
+
+# Result
+
+1. Summary before cleaning.
+
+```{r}
+# Aflatoxin
+summary(conc$AF_class %>% as.factor())
+# Fumonisin
+summary(conc$FM_class %>% as.factor())
+
+# How many plates? How many kernels per plate?
+conc_preclean %>%
+  summarise(obs = n())
+
+##### How many NAs?
+count_na = function(data, type){
+  if(type == "AF"){
+    a = "AF.ppb."
+  } else if (type == "FM"){
+    a = "FM.ppm."
+  }
+  sum(is.na(data[[a]]))
+}
+
+# How many NA's in aflatoxin?
+conc_preclean %>%
+  split(x = ., f = conc_preclean$plate) %>%
+  map(.x = ., .f = count_na, type = "AF") %>%
+  unlist()
+
+# How many Na's in fumonisin?
+conc_preclean %>%
+  split(x = ., f = conc_preclean$plate) %>%
+  map(.x = ., .f = count_na, type = "FM") %>%
+  unlist()
+```
+
+2. Summary after cleaning.
+
+```{r}
+# How many AFs and FMs?
+AF_class2 = ifelse(test = conc2$AF.ppb. < 20, yes = "L", no = ifelse(test = conc2$AF.ppb. >= 50, yes = "H", no = "M")) %>% 
+  as.factor()
+summary(AF_class2)
+
+FM_class2 = ifelse(test = conc2$FM.ppm. < 1, yes = "L", no = ifelse(test = conc2$FM.ppm. >= 4, yes = "H", no = "M")) %>% 
+  as.factor()
+summary(FM_class2)
+```
+
+```{r}
+# Check for NA's
+anyNA(conc2)
+```
+
+```{r}
+# Check the mediums for FM. Find out which kernel is the extra medium after cleaning.
+
+## Before cleaning
+subset(x = conc, subset = FM_class == "M") %>%
+  select(Kernel_ID, FM.ppm.)
+
+## After cleaning
+subset(x = conc2, subset = FM_class2 == "M") %>%
+  select(Kernel_ID, FM.ppm.)
+```
+
+# Conclusion
+
+    There are 528 kernels involved in this part of the experiment. There is 1 more kernel categorized as "medium in fumonisin" after cleaning. It is confirmed by checking the original ELISA data that "201-16" has the correct fumonisin concentration after cleaning.
+    
+```{r, echo = FALSE, eval = FALSE}
+temp = conc2 %>%
+  mutate(AF_class = AF_class2,
+         FM_class = FM_class2)
+
+colnames(temp)[c(6,7)] = c("<LOD.AF", "<LOD.FM")
+write.csv(x = temp, file = "Texas_Conc_Class_528obs_02_05_19.csv")
+```
+

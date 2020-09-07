@@ -1,0 +1,159 @@
+---
+title: 'Texas: Test of Transformations'
+author: "Xianbin Cheng"
+date: "March 15, 2019"
+output: html_document
+---
+
+# Objective
+  
+  * Convert AF_class and FM_class to a binary vector
+  * Try log(1/R) transformation to X
+  * Try logR transformation to X
+  * Try Savitzky-Golay smooth filtering to each row of X
+  
+# Method
+
+1. Load libraries and files. Convert class vectors to binary vectors.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(signal)
+```
+
+```{r}
+X_raw = read.csv("TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+X_raw$FM_class = gsub(pattern = "M", replacement = "H", x = X_raw$FM_class) %>% as.factor()
+X_raw$AF_class = as.factor(X_raw$AF_class)
+summary(X_raw$AF_class)
+summary(X_raw$FM_class)
+```
+
+2. Load necessary functions.
+
+```{r}
+## Convert a wide dataset into a long dataset
+my_melt = function(df){
+  df1 = df %>%
+    gather(., key = "nm", value = "value", -c(Kernel_ID, Spec_ID_all, AF_class, FM_class))
+  df1$nm = gsub(pattern = "X", replacement = "", x = df1$nm) %>% as.numeric()
+  return(df1)
+}
+
+## Extract the observation at the 5th percentile and 95th percentile
+lb <- function(x, probs = 0.05){quantile(x, probs)}
+ub <- function(x, probs = 0.95){quantile(x, probs)}
+
+## Generate spectral graph of the medians at each wavelength with 5th - 95th percentile interval
+spec_plot = function(data, class, yaxis = "Intensity", legend = "5th - 95th Percentile"){
+  
+  ### Generate columns of observations at 5th, 50th and 95th percentile
+  df = data %>%
+    group_by_(class, "nm") %>%
+    summarise(lower = lb(value), med = median(value), upper = ub(value))
+  
+  ### Visualize
+  ggplot(data = df) +
+    geom_line(aes_string(x = "nm", y = "med", color = class)) +
+    geom_ribbon(aes_string(x = "nm", ymin = "lower", ymax = "upper", fill = class), alpha = 0.3) +
+    labs(x = "Wavelength (nm)", y = yaxis, color = "Median", fill = legend) +
+    scale_color_discrete(labels = c("High", "Low", "Medium")) +
+    scale_fill_discrete(labels = c("High", "Low", "Medium")) +
+    theme_classic() +
+    theme(legend.position = "top")
+}
+```
+
+3. Convert wide data to long data.
+
+```{r}
+X_raw_long = my_melt(df = X_raw)
+```
+
+4. Transformations.
+
+```{r}
+# First shift the spectra upward by 20 so that all numbers are positive
+min(X_raw_long$value)
+
+X_raw_long_pos = X_raw_long
+X_raw_long_pos$value = X_raw_long_pos$value + 20
+
+# log(R) transformation
+X_raw_long_logR = X_raw_long_pos
+X_raw_long_logR$value = log(X_raw_long_logR$value)
+
+# log(1/R) = absorbance
+X_raw_long_abs = X_raw_long_pos
+X_raw_long_abs$value = log(1/X_raw_long_logR$value)
+
+# Savitsky-Golay Filtering
+X = X_raw[,5:ncol(X_raw)] %>%
+  as.matrix() %>%
+  t()
+X_sg = apply(X = X, MARGIN = 2, FUN = sgolayfilt, p = 3) %>%
+  t() %>%
+  cbind(X_raw[,1:4], .)
+colnames(X_sg) = colnames(X_raw)
+
+X_sg_long = my_melt(df = X_sg)
+```
+
+5. Produce plots.
+
+```{r}
+## Aflatoxin: Raw - Background
+af_raw_plot = spec_plot(data = X_raw_long, class = "AF_class", yaxis = "Intensity (Raw - Background)")
+fm_raw_plot = spec_plot(data = X_raw_long, class = "FM_class", yaxis = "Intensity (Raw - Background)")
+```
+
+```{r}
+# Log(R)
+af_logR_plot = spec_plot(data = X_raw_long_logR, class = "AF_class", yaxis = "log Intensity (upshifted by 20)")
+fm_logR_plot = spec_plot(data = X_raw_long_logR, class = "FM_class", yaxis = "log Intensity (upshifted by 20)")
+```
+
+```{r}
+# log(1/R)
+af_abs_plot = spec_plot(data = X_raw_long_abs, class = "AF_class", yaxis = "Absorbance")
+fm_abs_plot = spec_plot(data = X_raw_long_abs, class = "FM_class", yaxis = "Absorbance")
+```
+
+```{r}
+#Savitzky-Golay Filter
+af_sg_plot = spec_plot(data = X_sg_long, class = "AF_class", yaxis = "Intensity (Raw - Background)")
+fm_sg_plot = spec_plot(data = X_sg_long, class = "FM_class", yaxis = "Intensity (Raw - Background)")
+```
+
+
+# Result
+
+1. Visualization of raw spectra. Left: Aflatoxin. Right: Fumonisin.
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+af_raw_plot
+fm_raw_plot
+```
+
+2. Visualization of spectra transformed by log(R). 
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+af_logR_plot
+fm_logR_plot
+```
+
+3. Visualization of spectra transformed by log(1/R)
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+af_abs_plot
+fm_abs_plot
+```
+
+4. Visualization of spectra pre-processed with Savitzky-Golay smoothing filter.
+
+```{r, echo = FALSE, fig.show = "hold", out.width = "50%"}
+af_sg_plot
+fm_sg_plot
+```
+
+

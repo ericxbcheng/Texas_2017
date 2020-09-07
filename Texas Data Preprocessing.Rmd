@@ -1,0 +1,207 @@
+---
+title: "Texas Data Pre-processsing"
+author: "Xianbin Cheng"
+date: "March 6, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Pre-process the spectral data with PCA
+  
+# Method
+
+1. Load libraries and files.
+
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r}
+spec_meta = read.csv("TX Spectra Metadata.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+visual_meta = read.csv("TX Visual Metadata.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+
+X = read.csv("TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X$AF_class = factor(X$AF_class, levels = c("H", "M", "L"))
+X$FM_class = factor(X$FM_class, levels = c("H", "M", "L"))
+
+X_norm = read.csv("TX X_norm_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X_norm$AF_class = factor(X_norm$AF_class, levels = c("H", "M", "L"))
+X_norm$FM_class = factor(X_norm$FM_class, levels = c("H", "M", "L"))
+
+X_perc = read.csv("TX X_perc_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X_norm$AF_class = factor(X_norm$AF_class, levels = c("H", "M", "L"))
+X_norm$FM_class = factor(X_norm$FM_class, levels = c("H", "M", "L"))
+```
+
+2. Transform `X` and `X_norm` by PCA. Draw 2D PCA plots. 
+
+```{r}
+pca_X = prcomp(x = X[ ,5:ncol(X)], center = FALSE, scale. = FALSE)
+pca_X_norm = prcomp(x = X_norm[ ,5:ncol(X_norm)], center = FALSE, scale. = FALSE)
+pca_X_perc = prcomp(x = X_perc[ ,5:ncol(X_perc)], center = FALSE, scale. = FALSE)
+```
+
+3. Extract the metadata.
+
+```{r}
+Meta = X_norm %>%
+  dplyr::select(Kernel_ID:Spec_ID_all) %>%
+  mutate(Spec = str_split(string = Spec_ID_all, pattern = "-", simplify = TRUE)[,1]) %>%
+  left_join(x = ., y = spec_meta, by = "Spec") %>%
+  dplyr::select(-c(Plate, Duplicate)) %>%
+  left_join(x = ., y = visual_meta, by = "Kernel_ID")
+```
+
+3. Based on the PCA plots, draw a dividing line and identify the outliers.
+
+```{r}
+# Find out the outliers PC2 > PC1 * (25/-75) + 25
+out = function(data, k = k, b = b){
+  if(data[2] < data[1] * k + b){
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
+}
+
+# Find the points that fall beyond PC2 = PC1 * k + b
+k = 0.5
+b = -75/2
+
+test = pca_X_norm$x[,1:2] 
+test2 = apply(X = test, MARGIN = 1, FUN = out, k = k, b = b)
+
+# Find the rows of outliers
+idx = test2[test2 == TRUE] %>% 
+  names() %>%
+  as.numeric()
+
+# Find the outliers
+outliers = Meta[idx, ] 
+
+# Create an outlier factor vector
+outlier_binary = vector(mode = "numeric", length = nrow(X_norm)) + 0
+outlier_binary[idx] = 1
+outlier_binary = as.factor(outlier_binary)
+summary(outlier_binary)
+```
+
+3. Find out about the correlation between outliers and mycotoxin levels, date when we collected spectra, BGYF, discoloration, brokenness, sample source.
+
+```{r}
+# mycotoxins
+tab_AF = table(outlier_binary, X_norm$AF_class)
+tab_FM = table(outlier_binary, X_norm$FM_class)
+
+# date
+tab_date = table(Meta$Date, outlier_binary)
+
+# BGYF
+tab_bgyf = table(Meta$BGYF, outlier_binary)
+
+# discoloration
+tab_discoloration = table(Meta$Discoloration, outlier_binary)
+
+# brokenness
+tab_broken = table(Meta$Brokenness, outlier_binary)
+
+# sample source
+tab_ss = table(Meta$Bulk_class, outlier_binary)
+```
+
+# Result
+
+1. PCA plots.
+
+```{r, echo = FALSE}
+draw_pca_2d = function(data, class, divide, slope, intercept){
+  
+  a = data$x %>%
+    as.data.frame()
+  b = cbind(class, a)
+  
+  c = ggplot(data = b, aes(x = PC1, y = PC2)) +
+    geom_point(aes(color = class)) +
+    theme_bw()
+  
+  if(divide == TRUE){
+    d = c +
+      geom_abline(slope = slope, intercept = intercept)
+    
+    return(d)
+  } else {
+    return(c)
+  }
+}
+```
+
+```{r, fig.show="hold", out.width= "33%"}
+# Aflatoxin
+# Untransformed X
+draw_pca_2d(data = pca_X, class = X$AF_class, divide = FALSE)
+
+# Normalized X_norm
+draw_pca_2d(data = pca_X_norm, class = X$AF_class, divide = FALSE)
+
+# Percent reflectance
+draw_pca_2d(data = pca_X_perc, class = X$AF_class, divide = FALSE)
+```
+
+```{r, fig.show= "hold", out.width= "33%"}
+# Fumonisin
+# Untransformed X
+draw_pca_2d(data = pca_X, class = X$FM_class, divide = FALSE)
+
+# Normalized X_norm
+draw_pca_2d(data = pca_X_norm, class = X$FM_class, divide = FALSE)
+
+# Percent refletance X_perc
+draw_pca_2d(data = pca_X_perc, class = X$FM_class, divide = FALSE)
+```
+
+2. Correlation
+
+```{r, out.size= "50%"}
+# AF
+draw_pca_2d(data = pca_X_norm, class = X_norm$AF_class, divide = TRUE, slope = k, intercept = b)
+tab_AF
+fisher.test(x = tab_AF)
+
+# FM
+draw_pca_2d(data = pca_X_norm, class = X_norm$FM_class, divide = TRUE, slope = k, intercept = b)
+tab_FM
+fisher.test(x = tab_FM, hybrid = TRUE)
+
+# Spectra collection date
+draw_pca_2d(data = pca_X_norm, class = Meta$Date, divide = TRUE, slope = k, intercept = b)
+tab_date
+fisher.test(x = tab_date, hybrid = TRUE)
+
+# BGYF
+draw_pca_2d(data = pca_X_norm, class = as.factor(Meta$BGYF), divide = TRUE, slope = k, intercept = b)
+tab_bgyf
+fisher.test(x = tab_bgyf)
+
+# Brokenness
+draw_pca_2d(data = pca_X_norm, class = as.factor(Meta$Brokenness), divide = TRUE, slope = k, intercept = b)
+tab_broken
+fisher.test(x = tab_broken)
+
+# discoloration
+draw_pca_2d(data = pca_X_norm, class = as.factor(Meta$Discoloration), divide = TRUE, slope = k, intercept = b)
+tab_discoloration
+fisher.test(x = tab_discoloration)
+
+# Sample source (Bulk-class)
+draw_pca_2d(data = pca_X_norm, class = Meta$Bulk_class, divide = TRUE, slope = k, intercept = b)
+tab_ss
+fisher.test(x = tab_ss, hybrid = TRUE)
+```
+
+# Conclusion
+
+  * The Fisher's exact test shows that bulk class (i.e. sample source) and brokenness are associated with whether a kernel is an outlier or not. However, it seems that when the kernel is NOT an outlier, it's more likely to be broken. And we see an association between outliers and bulk class simply because there are much more points in the left of the dividing line.
+  
+  

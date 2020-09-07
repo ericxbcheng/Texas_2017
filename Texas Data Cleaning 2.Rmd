@@ -1,0 +1,108 @@
+---
+title: "Texas Data Cleaning 2"
+author: "Xianbin Cheng"
+date: "April 18, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load the libraries and read in necessary files.
+
+```{r, message= FALSE, warning=FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(stringr)
+```
+
+```{r, warning = FALSE, message = FALSE}
+Conc = read.csv("Texas Conc and Class 04_12_2018.csv", header = TRUE, stringsAsFactors = FALSE)
+Spec = read.csv("Spec_name_1.csv", header = TRUE, stringsAsFactors = FALSE)
+
+X1 = read_csv("TX X1.csv", col_names = TRUE)
+X2 = read_csv("TX X2.csv", col_names = TRUE)
+
+str(Conc)
+str(Spec)
+```
+
+2. Sort the two datasets by `Kernel_ID` first. Then merge the `Conc` and `Spec` by left joining on `Kernel_ID`.
+
+```{r}
+## Sorting
+Conc = Conc %>% arrange(.data = ., Kernel_ID)
+Spec = Spec %>% arrange(.data = ., Kernel_ID)
+```
+
+```{r, warning = FALSE}
+## Left joining
+Spec_Conc = left_join(x = Conc, y = Spec, by = "Kernel_ID")
+
+## Clean up the Spec_Conc dataset
+Spec_Conc = Spec_Conc %>%
+  select(-c(X, AF.ppb..y, FM.ppm..y)) %>%
+  arrange(Kernel_ID)
+
+head(Spec_Conc)
+```
+
+3. Add the Spec_ID for duplicate scans into the `Spec_Conc` dataset. Firstly, construct two temporary data frames that contain `Spec_ID*`, `Plate` and `Kernel`. Then merge the two data frames by `temp1` left outer joining `temp2` on `Plate` and `Kernel`.
+
+```{r}
+## Construct temporary data frames
+temp1 = data.frame(
+  Spec_ID1 = X1$X1,
+  Plate = substr(x = X1$X1, start = 1, stop = 3),
+  Kernel = str_sub(string = X1$X1, start = -6, end = -5) %>% as.numeric()
+)
+
+temp2 = data.frame(
+  Spec_ID2 = X2$X1,
+  Plate = substr(x = X2$X1, start = 1, stop = 3),
+  Kernel = str_sub(string = X2$X1, start = -6, end = -5) %>% as.numeric()
+)
+
+```
+
+```{r}
+temp1 %>%
+  group_by(Plate) %>%
+  summarise(obs = n())
+
+temp2 %>%
+  group_by(Plate) %>%
+  summarise(obs = n())
+```
+
+```{r, warning = FALSE}
+## Left joining
+Spec_all = left_join(x = temp1, y = temp2, by = c("Plate", "Kernel"))
+
+## Check the NAs and make sure they correspond to LL1
+Spec_all[which(is.na(Spec_all$Spec_ID2)), ]
+```
+
+```{r, eval = FALSE, echo = FALSE}
+write.csv(Spec_all, "TX Spec_name.csv")
+```
+
+4. Merge `Spec_Conc` and `Spec_all` by inner joining on the variables `Spec_ID` from `Spec_Conc` and `Spec_ID1` from `Spec_all`. Update the data frame `Spec_Conc` so that it contains `Kernel_ID`, `Spec_ID1`, `Spec_ID2`, mycotoxin concentrations and respective class columns.
+
+```{r, warning = FALSE}
+temp3 = inner_join(x = Spec_Conc, y = Spec_all, by = c("Spec_ID" = "Spec_ID1"))
+
+Spec_Conc = temp3 %>%
+  select(-c(Plate, Kernel))
+
+colnames(Spec_Conc)[6] = "Spec_ID1"
+Spec_Conc$Spec_ID2 = as.character(Spec_Conc$Spec_ID2)
+```
+
+```{r}
+kable_styling(kable(Spec_Conc, format = "html"), full_width = FALSE)
+```
+```{r, echo = FALSE, eval = FALSE}
+write.csv(Spec_Conc, "TX Spec_Conc 528obs.csv")
+```
+

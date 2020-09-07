@@ -1,0 +1,164 @@
+---
+title: "Texas Visualization 6"
+author: "Xianbin Cheng"
+date: "March 6, 2019"
+output: html_document
+---
+
+# Objective
+
+  * Visualize spectra of Texas corn 2017 (1680 spectra)
+
+## Method ##
+
+1. Load the libraries and read in the files.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(reshape2)
+```
+
+```{r}
+X_raw = read.csv("TX X_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X_norm = read.csv("TX X_norm_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+X_perc = read.csv("TX X_perc_Conc_1680_obs.csv", header = TRUE, row.names = 1)
+
+str(X_raw, list.len = 10)
+```
+
+```{r}
+summary(X_raw$AF_class)
+summary(X_raw$FM_class)
+```
+
+2. Load the custom functions.
+
+```{r}
+## Convert a wide dataset into a long dataset
+my_melt = function(df){
+  df1 = df %>%
+    gather(., key = "nm", value = "value", -c(Kernel_ID, Spec_ID_all, AF_class, FM_class))
+  df1$nm = gsub(pattern = "X", replacement = "", x = df1$nm) %>% as.numeric()
+  return(df1)
+}
+
+## Extract the observation at the 5th percentile and 95th percentile
+lb <- function(x, probs = 0.05){quantile(x, probs)}
+ub <- function(x, probs = 0.95){quantile(x, probs)}
+
+## Generate spectral graph of the medians at each wavelength with 5th - 95th percentile interval
+spec_plot = function(data, class, yaxis = "Intensity", legend = "5th - 95th Percentile"){
+  
+  ### Generate columns of observations at 5th, 50th and 95th percentile
+  df = data %>%
+    group_by_(class, "nm") %>%
+    summarise(lower = lb(value), med = median(value), upper = ub(value))
+  
+  ### Visualize
+  ggplot(data = df) +
+    geom_line(aes_string(x = "nm", y = "med", color = class)) +
+    geom_ribbon(aes_string(x = "nm", ymin = "lower", ymax = "upper", fill = class), alpha = 0.3) +
+    labs(x = "Wavelength (nm)", y = yaxis, color = "Median", fill = legend) +
+    scale_color_discrete(labels = c("High", "Low", "Medium")) +
+    scale_fill_discrete(labels = c("High", "Low", "Medium")) +
+    theme_classic() +
+    theme(legend.position = "top")
+}
+```
+
+3. Convert all datasets into long datasets.
+
+```{r}
+X_raw_long = my_melt(df = X_raw)
+X_norm_long = my_melt(df = X_norm)
+X_perc_long = my_melt(df = X_perc)
+```
+
+4. Generate plots.
+
+```{r}
+## Aflatoxin: Raw - Background
+af_raw_plot = spec_plot(data = X_raw_long, class = "AF_class", yaxis = "Intensity (Raw - Background)")
+
+## Aflatoxin: Normalized
+af_norm_plot = spec_plot(data = X_norm_long, class = "AF_class", yaxis = "Intensity (Normalized)")
+
+## AF: percent reflectance
+af_perc_plot = spec_plot(data = X_perc_long, class = "AF_class", yaxis = "Intensity (Percent Reflectance)")
+
+## Fumonisin: Raw - Background
+fm_raw_plot = spec_plot(data = X_raw_long, class = "FM_class", yaxis = "Intensity (Raw - Background)")
+
+## Fumonisin: Normalized
+fm_norm_plot = spec_plot(data = X_norm_long, class = "FM_class", yaxis = "Intensity (Normalized)")
+
+## FM: percent reflectance
+fm_perc_plot = spec_plot(data = X_perc_long, class = "FM_class", yaxis = "Intensity (Percent Reflectance)")
+```
+
+5. Extra plots: convert three-class labels to binary labels by treating mediums as highs as well. Since only fumonisin has "M"s, we are only gonna convert `FM_class`.
+
+```{r}
+# Untranformed
+X_raw_bi = X_raw
+X_raw_bi$FM_class = gsub(pattern = "M", replacement = "H", x = X_raw_bi$FM_class) %>%
+  as.factor()
+summary(X_raw_bi$FM_class)
+X_raw_long_bi = my_melt(df = X_raw_bi)
+fm_raw_bi_plot = spec_plot(data = X_raw_long_bi, class = "FM_class", yaxis = "Intensity (Raw - Background)")
+
+# Normalized
+X_norm_bi = X_norm
+X_norm_bi$FM_class = gsub(pattern = "M", replacement = "H", x = X_norm_bi$FM_class) %>%
+  as.factor()
+summary(X_norm_bi$FM_class)
+X_norm_long_bi = my_melt(df = X_norm_bi)
+fm_norm_bi_plot = spec_plot(data = X_norm_long_bi, class = "FM_class", yaxis = "Intensity (Normalized)")
+
+# Fumonisin: Percent Reflectance
+X_perc_bi = X_perc
+X_perc_bi$FM_class = gsub(pattern = "M", replacement = "H", x = X_perc_bi$FM_class) %>%
+  as.factor()
+summary(X_perc_bi$FM_class)
+X_perc_long_bi = my_melt(df = X_perc_bi)
+fm_perc_bi_plot = spec_plot(data = X_perc_long_bi, class = "FM_class", yaxis = "Intensity (Percent Reflectance)")
+```
+
+## Result ##
+
+1. Spectral plot for aflatoxin
+
+```{r, echo = FALSE}
+af_raw_plot
+af_norm_plot
+af_perc_plot
+```
+
+2. Spectral plot for fumonisin.
+
+```{r, echo = FALSE}
+fm_raw_plot
+fm_norm_plot
+fm_perc_plot
+```
+
+```{r}
+# Binary class 
+fm_raw_bi_plot
+fm_norm_bi_plot
+fm_perc_bi_plot
+```
+
+```{r, echo = FALSE, eval = FALSE}
+pdf(file = "Texas Corn 2017 Spectra.pdf")
+  af_raw_plot
+  af_norm_plot
+  af_perc_plot
+  fm_raw_plot
+  fm_norm_plot
+  fm_perc_plot
+  fm_raw_bi_plot
+  fm_norm_bi_plot
+  fm_perc_bi_plot
+dev.off()
+```

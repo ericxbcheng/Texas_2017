@@ -1,0 +1,211 @@
+---
+title: "Texas Skewed Dist 2"
+author: "Xianbin Cheng"
+date: "May 7, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load the libraries and read in files.
+
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(kableExtra)
+```
+
+```{r}
+weight = read.csv("TX weight.csv", header = TRUE, stringsAsFactors = FALSE)
+bulk = read.csv("Bulk Level.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+
+```{r}
+str(weight)
+```
+
+```{r, echo = FALSE}
+kable_styling(kable(bulk, format= "html"), full_width = FALSE)
+```
+
+2. Pre-process the dataset by adding two variables: `Plate_ID` and `Kernel`. `Plate_ID` is the first three digits in the `Kernel_ID` and `Kernel` is the individual kernel identifier. Also, add the class labels `AF_class` and `FM_class`.
+
+```{r}
+## Aflatoxin class
+AF_class = ifelse(weight$AF.ppb. < 20, "L", "M")
+AF_class[weight$AF.ppb. >= 50] = "H"
+AF_class[is.na(weight$AF.ppb.)] = "L"
+AF_class = factor(AF_class, levels = c("H", "M", "L"))
+summary(AF_class)
+
+## Fumonisin class
+FM_class = ifelse(weight$FM.ppm. < 1, "L", "M")
+FM_class[weight$FM.ppm. >= 4] = "H"
+FM_class[is.na(weight$FM.ppm.)] = "L"
+FM_class = factor(FM_class, levels = c("H", "M", "L"))
+summary(FM_class)
+
+## Combine by columns
+weight2 = weight %>%
+  mutate(Plate_ID = substr(Kernel_ID, start = 1, stop = 3),
+         Kernel = substr(Kernel_ID, start = 5, stop = 6),
+         AF_class = AF_class,
+         FM_class = FM_class) 
+```
+
+```{r}
+str(weight2)
+```
+
+3. Calculate the weight fraction of each kernel within each bulk group and call it `wt_frac`. `wt_frac`$ = m_i / m_{total}$.
+
+```{r}
+## Create a function that calculates the weight fraction.
+wt_frac_func = function(df){
+  df = df %>%
+    mutate(wt_frac = m.kernel..g / sum(m.kernel..g))
+}
+
+## Split weight2 based on Plate_ID, apply wt_frac_func() to each subset, and combine the results by rows.
+weight3 = weight2 %>%
+  split(x = ., f = weight2$Plate_ID) %>%
+  lapply(X = ., FUN = wt_frac_func) %>%
+  do.call(what = rbind.data.frame, args = .)
+```
+
+```{r}
+str(weight3)
+```
+
+4. Calculate the weighted aflatoxin and fumonisin concentration for each kernel. `wt_af` = `AF.ppb` x `wt_frac`. `wt_fm` = `FM.ppm.` x `wt_frac`.
+
+```{r}
+weight4 = weight3 %>%
+  mutate(wt_af = AF.ppb. * wt_frac,
+         wt_fm = FM.ppm. * wt_frac)
+
+weight4$Kernel = as.numeric(weight4$Kernel)
+```
+
+```{r}
+str(weight4)
+```
+
+5. Sort the dataset on `Plate_ID` and `Kernel`.
+
+```{r}
+weight5 = weight4 %>% 
+  arrange(.data = ., Plate_ID, Kernel)
+```
+
+```{r}
+str(weight5)
+```
+
+6. Split `weight5` on the bulk class (LL = 1, LM = 2, LH = 3, ML = 4, MM = 5, MH = 6, HL = 7, HM = 8, HH = 9).
+
+```{r}
+## Add a numeric column to the dataset "bulk" to identify bulk class.
+bulk$Bulk_class = 1:9 %>% as.character()
+
+## Join the two datasets and split on "Bulk_class".
+bulk_group = weight5 %>%
+  mutate(Bulk_class = substr(Plate_ID, start = 1, stop = 1)) %>%
+  left_join(x = ., y = bulk, by = "Bulk_class") %>%
+  split(x = ., f = .$Bulk_class)
+```
+
+```{r}
+str(bulk_group[[1]])
+```
+
+7. Calculate the `wt_af`/`Bulk_Aflatoxin.ppb.` and `wt_fm`/`Bulk_Fumonisin.ppm.` for each bulk level.
+
+```{r}
+## Create a function for calculating percentages.
+calc_perc = function(data){
+  data %>%
+    mutate(perc_af = wt_af / Bulk_Aflatoxin.ppb.,
+           perc_fm = wt_fm / Bulk_Fumonisin.ppm.)
+}
+
+bulk_group_2 = lapply(X = bulk_group, FUN = calc_perc) %>%
+  do.call(what = rbind.data.frame, args = .)
+
+```
+
+8. Visualize the weighted aflatoxin and fumonisin for each bulk class.
+
+```{r}
+## Create a function for visualization of weighted mycotoxin.
+vis_af = function(df){
+  df1 = df %>% arrange(.data = ., Class, desc(wt_af))
+  ggplot(data = df1) +
+    geom_bar(aes(x = 1:length(Kernel_ID), y = wt_af, fill = AF_class), stat = "identity") +
+    facet_wrap(~ Class, scales = "free", labeller = label_both) +
+    labs(y = "Weighted aflatoxin (ppb)", x = "Kernel") +
+    scale_fill_discrete(name = "Individual AF Class") +
+    theme_bw()
+}
+
+vis_fm = function(df){
+  df1 = df %>% arrange(.data = ., Class, desc(wt_fm))
+  ggplot(data = df1) +
+    geom_bar(aes(x = 1:length(Kernel_ID), y = wt_fm, fill = FM_class), stat = "identity") +
+    facet_wrap(~ Class, scales = "free", labeller = label_both) +
+    labs(y = "Weighted fumonisin (ppm)", x = "Kernel") +
+    scale_fill_discrete(name = "Individual FM Class") +
+    theme_bw()
+}
+```
+
+9. Visualize the percent mycotoxin contributed to the bulk for each bulk class.
+
+```{r}
+## Create a function for visualization of percentages of weighted mycotoxin.
+vis_af_perc = function(df){
+  df1 = df %>% arrange(.data = ., Class, desc(perc_af))
+  ggplot(data = df1) +
+    geom_bar(aes(x = 1:length(Kernel_ID), y = perc_af, fill = AF_class), stat = "identity") +
+    facet_wrap(~ Class, scales = "free", labeller = label_both) +
+    labs(y = "% Aflatoxin contributed to bulk", x = "Kernel") +
+    scale_fill_discrete(name = "Individual AF Class") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_bw()
+}
+
+vis_fm_perc = function(df){
+  df1 = df %>% arrange(.data = ., Class, desc(perc_fm))
+  ggplot(data = df1) +
+    geom_bar(aes(x = 1:length(Kernel_ID), y = perc_fm, fill = FM_class), stat = "identity") +
+    facet_wrap(~ Class, scales = "free", labeller = label_both) +
+    labs(y = "% Fumonisin contributed to bulk", x = "Kernel") +
+    scale_fill_discrete(name = "Individual FM Class") +
+    scale_y_continuous(labels = scales::percent) +
+    theme_bw()
+}
+
+```
+
+
+## Results ##
+
+```{r, warning = FALSE, message = FALSE, out.height= "120%", out.width = "120%"}
+## Weighted Aflatoxin
+vis_af(bulk_group_2)
+```
+
+```{r, warning = FALSE, message = FALSE, out.height= "120%", out.width = "120%"}
+## Weighted Fumonisin
+vis_fm(bulk_group_2)
+```
+
+```{r, warning = FALSE, message = FALSE, out.height= "120%", out.width = "120%"}
+## % Aflatoxin Contribution
+vis_af_perc(bulk_group_2)
+```
+
+```{r, warning = FALSE, message = FALSE, out.height= "120%", out.width = "120%"}
+## % Fumonisin Contribution
+vis_fm_perc(bulk_group_2)
+```
+

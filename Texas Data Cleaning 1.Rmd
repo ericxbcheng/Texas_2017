@@ -1,0 +1,65 @@
+---
+title: "Texas Data Cleaning"
+author: "Xianbin Cheng"
+date: "April 18, 2018"
+output: html_document
+---
+
+## Method ##
+
+1. Load libraries.
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(knitr)
+library(kableExtra)
+```
+
+2. Read in all the X1.csv, X2.csv, X1_norm.csv and X2_norm.csv files respectively. Combine each type of files by row.
+
+```{r}
+## Check the names of csv files in the current directory.
+dir()
+
+## X1
+X1_name = list.files(pattern = "X1.csv")
+X1_list = lapply(X = X1_name, FUN = function(x) {read.csv(x, header = TRUE, row.names = 1)})
+X1 = do.call(what = rbind, args = X1_list)
+
+## X2
+X2_name = list.files(pattern = "X2.csv")
+X2_list = lapply(X = X2_name, FUN = function(x) {read.csv(x, header = TRUE, row.names = 1)})
+X2 = do.call(what = rbind, args = X2_list)
+
+## X1_norm
+X1_norm_name = list.files(pattern = "X1_norm.csv")
+X1_norm_list = lapply(X = X1_norm_name, FUN = function(x) {read.csv(x, header = TRUE, row.names = 1)})
+X1_norm = do.call(what = rbind, args = X1_norm_list)
+
+## X2_norm
+X2_norm_name = list.files(pattern = "X2_norm.csv")
+X2_norm_list = lapply(X = X2_norm_name, FUN = function(x) {read.csv(x, header = TRUE, row.names = 1)})
+X2_norm = do.call(what = rbind, args = X2_norm_list)
+```
+
+```{r, echo = FALSE, warning = FALSE}
+result_X1 = t(sapply(X = X1_list, FUN = dim))
+dimnames(result_X1) = list(Batch = c("09/11", "10/15", "10/24", "11/09"), Dim = c("Row", "Column"))
+kable_styling(kable(result_X1, caption = "The first scan", format = "html"), full_width = FALSE)
+
+result_X2 = t(sapply(X = X2_list, FUN = dim))
+dimnames(result_X2) = list(Batch = c("09/11", "10/15", "10/24", "11/09"), Dim = c("Row", "Column"))
+kable_styling(kable(result_X2, caption = "The second scan", format = "html"), full_width = FALSE)
+```
+
+3. Output the files.
+
+```{r, eval = FALSE}
+write.csv(X1, "TX X1.csv")
+write.csv(X2, "TX X2.csv")
+write.csv(X1_norm, "TX X1_norm.csv")
+write.csv(X2_norm, "TX X2_norm.csv")
+```
+
